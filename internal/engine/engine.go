@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -314,14 +313,21 @@ func (e *Engine) handle(ctx context.Context, u map[string]any) *sync.WaitGroup {
 		base["state"] = st
 	}
 
+	// Triggers only read the environment, so one context is shared while
+	// probing and handed to the first trigger that matches.
+	var probe *Exec
 	for _, t := range cands {
-		x := e.newExec(ctx, u, typ, base)
-		x.stateKey = stateKey
-		x.bg = bg
-		data, ok := t.trigger.Match(x)
+		if probe == nil {
+			probe = e.newExec(ctx, u, typ, base)
+		}
+		data, ok := t.trigger.Match(probe)
 		if !ok {
 			continue
 		}
+		x := probe
+		probe = nil
+		x.stateKey = stateKey
+		x.bg = bg
 		x.Results[t.spec.ID] = data
 		e.run(x, t.next[Main])
 		// State changes made by one flow are visible to the next trigger.
@@ -384,6 +390,3 @@ func (e *Engine) run(x *Exec, start []*node) {
 		}
 	}
 }
-
-// DefaultWorkers is used when runtime.workers is not set.
-func DefaultWorkers() int { return runtime.NumCPU() * 4 }

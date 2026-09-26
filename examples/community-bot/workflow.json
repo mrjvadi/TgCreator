@@ -2,7 +2,7 @@
   "name": "Gophers community bot",
   "version": 1,
   "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
-  "runtime": { "workers": 16, "state_ttl": "30m", "state_backend": "redis", "health_listen": ":9090" },
+  "runtime": { "state_ttl": "30m", "state_backend": "redis", "health_listen": ":9090" },
   "variables": {
     "owner_id": 101,
     "warn_limit": 3,

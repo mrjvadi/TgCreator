@@ -248,3 +248,11 @@ func addFile(mw *multipart.Writer, field, ref string) error {
 	_, err = io.Copy(w, f)
 	return err
 }
+
+// NewWithHTTPClient is New with a custom HTTP client (proxies, tests,
+// benchmarks with an in-memory transport).
+func NewWithHTTPClient(token, apiURL string, hc *http.Client) *Client {
+	c := New(token, apiURL)
+	c.hc = hc
+	return c
+}

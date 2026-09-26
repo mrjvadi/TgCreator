@@ -59,12 +59,18 @@ func hasLink(v any) bool {
 		if hasEntity(t, "url", "text_link") {
 			return true
 		}
-		return linkRe.MatchString(ToString(t["text"])) || linkRe.MatchString(ToString(t["caption"]))
+		return textHasLink(ToString(t["text"])) || textHasLink(ToString(t["caption"]))
 	case nil:
 		return false
 	default:
-		return linkRe.MatchString(ToString(t))
+		return textHasLink(ToString(t))
 	}
+}
+
+// textHasLink skips the regex for text that cannot contain a link (every
+// pattern needs a "." or a ":"), which is most chat messages.
+func textHasLink(s string) bool {
+	return strings.ContainsAny(s, ".:") && linkRe.MatchString(s)
 }
 
 func hasEntity(v any, types ...string) bool {

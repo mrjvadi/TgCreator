@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"hash/fnv"
 	"io"
 	"net/http"
 	"sync"
@@ -15,37 +14,97 @@ import (
 	"github.com/mrjvadi/tgcreator/internal/tmpl"
 )
 
-// dispatcher shards updates by chat so updates of one chat are handled in
-// order while different chats run in parallel.
+// dispatcher gives every active chat its own queue: updates of one chat
+// are handled in order, while chats never wait for each other (a slow
+// Telegram call in one chat does not delay another). A goroutine exists
+// only while a chat has pending updates.
 type dispatcher struct {
-	e      *Engine
-	queues []chan map[string]any
-	wg     sync.WaitGroup
-	count  atomic.Int64
+	e       *Engine
+	ctx     context.Context
+	mu      sync.Mutex
+	chats   map[string]*chatQueue
+	running chan struct{} // limits updates handled at the same time
+	pending chan struct{} // limits buffered updates; full = stop polling
+	wg      sync.WaitGroup
+	count   atomic.Int64
 }
+
+type chatQueue struct{ items []map[string]any }
+
+// DefaultWorkers is the default number of updates handled concurrently.
+// Handling is mostly waiting on the network, so this is far above the CPU
+// count; goroutines are cheap.
+const DefaultWorkers = 512
 
 func newDispatcher(ctx context.Context, e *Engine) *dispatcher {
 	workers := e.WF.Runtime.Workers
 	if workers <= 0 {
-		workers = DefaultWorkers()
+		workers = DefaultWorkers
 	}
 	size := e.WF.Runtime.QueueSize
 	if size <= 0 {
-		size = 256
+		size = 100_000
 	}
-	d := &dispatcher{e: e, queues: make([]chan map[string]any, workers)}
-	for i := range d.queues {
-		q := make(chan map[string]any, size)
-		d.queues[i] = q
+	return &dispatcher{
+		e: e, ctx: ctx, chats: map[string]*chatQueue{},
+		running: make(chan struct{}, workers),
+		pending: make(chan struct{}, size),
+	}
+}
+
+func chatKey(u map[string]any) string {
+	p := asMap(u[UpdateType(u)])
+	key := asMap(p["chat"])["id"]
+	if key == nil {
+		key = asMap(asMap(p["message"])["chat"])["id"]
+	}
+	if key == nil {
+		key = asMap(p["from"])["id"]
+	}
+	if key == nil {
+		key = asMap(p["user"])["id"]
+	}
+	return tmpl.ToString(key)
+}
+
+// push queues an update. It blocks while the buffer is full, which pauses
+// polling (Telegram keeps the updates) or slows webhook responses.
+func (d *dispatcher) push(u map[string]any) {
+	d.pending <- struct{}{}
+	key := chatKey(u)
+	d.mu.Lock()
+	q, busy := d.chats[key]
+	if !busy {
+		q = &chatQueue{}
+		d.chats[key] = q
+	}
+	q.items = append(q.items, u)
+	d.mu.Unlock()
+	if !busy {
 		d.wg.Add(1)
-		go func() {
-			defer d.wg.Done()
-			for u := range q {
-				d.handle(ctx, u)
-			}
-		}()
+		go d.drain(key, q)
 	}
-	return d
+}
+
+func (d *dispatcher) drain(key string, q *chatQueue) {
+	defer d.wg.Done()
+	for {
+		d.mu.Lock()
+		if len(q.items) == 0 {
+			delete(d.chats, key)
+			d.mu.Unlock()
+			return
+		}
+		u := q.items[0]
+		q.items[0] = nil
+		q.items = q.items[1:]
+		d.mu.Unlock()
+
+		d.running <- struct{}{}
+		d.handle(d.ctx, u)
+		<-d.running
+		<-d.pending
+	}
 }
 
 func (d *dispatcher) handle(ctx context.Context, u map[string]any) {
@@ -65,27 +124,8 @@ func (d *dispatcher) handle(ctx context.Context, u map[string]any) {
 	bg = d.e.handle(ctx, u)
 }
 
-func (d *dispatcher) push(u map[string]any) {
-	typ := UpdateType(u)
-	p := asMap(u[typ])
-	key := asMap(p["chat"])["id"]
-	if key == nil {
-		key = asMap(asMap(p["message"])["chat"])["id"]
-	}
-	if key == nil {
-		key = asMap(p["from"])["id"]
-	}
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(tmpl.ToString(key)))
-	d.queues[h.Sum32()%uint32(len(d.queues))] <- u
-}
-
-func (d *dispatcher) close() {
-	for _, q := range d.queues {
-		close(q)
-	}
-	d.wg.Wait()
-}
+// close waits for queued updates to be handled.
+func (d *dispatcher) close() { d.wg.Wait() }
 
 // Run connects to Telegram and processes updates until ctx is cancelled.
 func (e *Engine) Run(ctx context.Context) error {

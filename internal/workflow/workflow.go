@@ -42,8 +42,8 @@ type Webhook struct {
 }
 
 type Runtime struct {
-	Workers       int    `json:"workers,omitempty"`    // default: 4 x CPU
-	QueueSize     int    `json:"queue_size,omitempty"` // per worker
+	Workers       int    `json:"workers,omitempty"`    // updates handled at once (default 512)
+	QueueSize     int    `json:"queue_size,omitempty"` // buffered updates before polling pauses (default 100000)
 	MaxSteps      int    `json:"max_steps,omitempty"`  // loop guard per update
 	DropPending   bool   `json:"drop_pending,omitempty"`
 	LogLevel      string `json:"log_level,omitempty"`

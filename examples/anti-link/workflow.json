@@ -7,7 +7,7 @@
     "parse_mode": "HTML"
   },
   "runtime": {
-    "workers": 16,
+    
     "health_listen": ":9090"
   },
   "services": {
