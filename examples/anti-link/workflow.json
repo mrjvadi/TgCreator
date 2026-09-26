@@ -7,7 +7,6 @@
     "parse_mode": "HTML"
   },
   "runtime": {
-    
     "health_listen": ":9090"
   },
   "services": {
