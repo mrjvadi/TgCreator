@@ -1,0 +1,143 @@
+{
+  "name": "Anti-link group guard",
+  "version": 1,
+  "bot": {
+    "token": "${BOT_TOKEN}",
+    "mode": "polling",
+    "parse_mode": "HTML"
+  },
+  "runtime": {
+    "workers": 16,
+    "health_listen": ":9090"
+  },
+  "services": {
+    "redis": { "url": "${REDIS_URL:-redis://localhost:6379/0}" },
+    "databases": {
+      "main": {
+        "driver": "postgres",
+        "dsn": "${DATABASE_URL:-postgres://tgc:tgc@localhost:5432/main?sslmode=disable}",
+        "migrations": [
+          "CREATE TABLE IF NOT EXISTS locks (chat_id BIGINT NOT NULL, kind TEXT NOT NULL, set_by BIGINT, set_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_id, kind))"
+        ]
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "cmd_lock",
+      "type": "trigger.command",
+      "name": "/lock و /unlock",
+      "params": { "commands": ["lock", "unlock"], "chat_types": ["group", "supergroup"] }
+    },
+    { "id": "cmd_is_admin", "type": "telegram.check_admin" },
+    {
+      "id": "only_admins",
+      "type": "telegram.send_message",
+      "params": { "text": "⛔️ فقط ادمین‌ها می‌توانند قفل‌ها را تغییر دهند.", "reply": true }
+    },
+    {
+      "id": "which",
+      "type": "logic.switch",
+      "params": {
+        "value": "{{ command + ':' + (args[0] ?? '') }}",
+        "cases": ["lock:link", "unlock:link"]
+      }
+    },
+    {
+      "id": "lock_redis",
+      "type": "redis.set",
+      "params": { "key": "lock:link:{{ chat.id }}", "value": "1" }
+    },
+    {
+      "id": "lock_db",
+      "type": "db.exec",
+      "params": {
+        "query": "INSERT INTO locks (chat_id, kind, set_by) VALUES ($1, 'link', $2) ON CONFLICT (chat_id, kind) DO UPDATE SET set_by = EXCLUDED.set_by, set_at = now()",
+        "args": ["{{ chat.id }}", "{{ from.id }}"]
+      }
+    },
+    {
+      "id": "lock_done",
+      "type": "telegram.send_message",
+      "params": { "text": "🔒 ارسال لینک در این گروه قفل شد.", "reply": true }
+    },
+    {
+      "id": "unlock_redis",
+      "type": "redis.del",
+      "params": { "key": "lock:link:{{ chat.id }}" }
+    },
+    {
+      "id": "unlock_db",
+      "type": "db.exec",
+      "params": {
+        "query": "DELETE FROM locks WHERE chat_id = $1 AND kind = 'link'",
+        "args": ["{{ chat.id }}"]
+      }
+    },
+    {
+      "id": "unlock_done",
+      "type": "telegram.send_message",
+      "params": { "text": "🔓 قفل لینک برداشته شد.", "reply": true }
+    },
+    {
+      "id": "usage",
+      "type": "telegram.send_message",
+      "params": { "text": "استفاده:\n<code>/lock link</code>\n<code>/unlock link</code>", "reply": true }
+    },
+
+    {
+      "id": "msg_link",
+      "type": "trigger.message",
+      "name": "Message with link",
+      "params": {
+        "updates": ["message", "edited_message"],
+        "chat_types": ["group", "supergroup"],
+        "condition": "hasLink(message)"
+      }
+    },
+    {
+      "id": "get_lock",
+      "type": "redis.get",
+      "params": { "key": "lock:link:{{ chat.id }}" }
+    },
+    {
+      "id": "is_locked",
+      "type": "logic.if",
+      "params": { "condition": "nodes.get_lock == '1'" }
+    },
+    { "id": "sender_is_admin", "type": "telegram.check_admin" },
+    { "id": "delete_link", "type": "telegram.delete_message", "continue_on_error": true },
+    {
+      "id": "warn",
+      "type": "telegram.send_message",
+      "params": { "text": "{{ mention(from) }} ارسال لینک در این گروه ممنوع است." }
+    },
+    { "id": "wait", "type": "logic.delay", "params": { "duration": "10s" } },
+    {
+      "id": "delete_warn",
+      "type": "tg.deleteMessage",
+      "params": { "chat_id": "{{ chat.id }}", "message_id": "{{ nodes.warn.message_id }}" }
+    }
+  ],
+  "connections": {
+    "cmd_lock": { "main": ["cmd_is_admin"] },
+    "cmd_is_admin": { "true": ["which"], "false": ["only_admins"] },
+    "which": {
+      "lock:link": ["lock_redis"],
+      "unlock:link": ["unlock_redis"],
+      "default": ["usage"]
+    },
+    "lock_redis": { "main": ["lock_db"] },
+    "lock_db": { "main": ["lock_done"] },
+    "unlock_redis": { "main": ["unlock_db"] },
+    "unlock_db": { "main": ["unlock_done"] },
+
+    "msg_link": { "main": ["get_lock"] },
+    "get_lock": { "main": ["is_locked"] },
+    "is_locked": { "true": ["sender_is_admin"] },
+    "sender_is_admin": { "false": ["delete_link"] },
+    "delete_link": { "main": ["warn"] },
+    "warn": { "main": ["wait"] },
+    "wait": { "main": ["delete_warn"] }
+  }
+}

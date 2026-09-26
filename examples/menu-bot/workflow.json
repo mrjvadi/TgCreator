@@ -1,0 +1,69 @@
+{
+  "name": "Menu bot (no external services)",
+  "version": 1,
+  "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
+  "runtime": { "state_ttl": "1h" },
+  "variables": { "site": "https://example.com" },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.command",
+      "params": { "commands": ["start", "menu"], "chat_types": ["private"] }
+    },
+    {
+      "id": "menu",
+      "type": "telegram.send_message",
+      "params": {
+        "text": "سلام {{ escapeHTML(from.first_name) }} 👋\nیکی از گزینه‌ها را انتخاب کن:",
+        "buttons": [
+          [{ "text": "📷 عکس", "callback_data": "show:photo" }, { "text": "🎬 ویدیو", "callback_data": "show:video" }],
+          [{ "text": "✍️ ارسال نظر", "callback_data": "feedback" }],
+          [{ "text": "🌐 سایت", "url": "{{ vars.site }}" }]
+        ]
+      }
+    },
+
+    { "id": "on_show", "type": "trigger.callback", "params": { "prefix": "show:" } },
+    { "id": "ack_show", "type": "telegram.answer_callback" },
+    {
+      "id": "send_it",
+      "type": "telegram.send_media",
+      "params": {
+        "type": "{{ nodes.on_show.suffix }}",
+        "file": "{{ nodes.on_show.suffix == 'photo' ? 'https://picsum.photos/800/500' : 'https://samplelib.com/lib/preview/mp4/sample-5s.mp4' }}",
+        "caption": "این یک <b>{{ nodes.on_show.suffix }}</b> است.",
+        "buttons": [[{ "text": "🔙 منو", "callback_data": "menu" }]]
+      }
+    },
+
+    { "id": "on_menu", "type": "trigger.callback", "params": { "data": "menu" } },
+    { "id": "ack_menu", "type": "telegram.answer_callback" },
+
+    { "id": "on_feedback", "type": "trigger.callback", "params": { "data": "feedback" } },
+    {
+      "id": "ask",
+      "type": "telegram.edit_message",
+      "params": { "text": "نظرت را بنویس و بفرست 👇" }
+    },
+    { "id": "wait_input", "type": "state.set", "params": { "values": { "step": "feedback" } } },
+
+    {
+      "id": "got_text",
+      "type": "trigger.message",
+      "params": { "chat_types": ["private"], "condition": "state.step == 'feedback' && text != '' && command == ''" }
+    },
+    {
+      "id": "thanks",
+      "type": "telegram.send_message",
+      "params": { "text": "ممنون! نظرت ثبت شد:\n<blockquote>{{ escapeHTML(text) }}</blockquote>", "reply": true }
+    },
+    { "id": "done", "type": "state.clear" }
+  ],
+  "connections": {
+    "start": { "main": ["menu"] },
+    "on_show": { "main": ["ack_show", "send_it"] },
+    "on_menu": { "main": ["ack_menu", "menu"] },
+    "on_feedback": { "main": ["ask", "wait_input"] },
+    "got_text": { "main": ["thanks", "done"] }
+  }
+}
