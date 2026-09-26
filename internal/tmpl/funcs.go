@@ -40,6 +40,8 @@ var functions = []expr.Option{
 		err := json.Unmarshal([]byte(ToString(p[0])), &v)
 		return v, err
 	}, new(func(any) any)),
+	// at(list, i) / at(map, key): nil instead of an error when missing.
+	expr.Function("at", func(p ...any) (any, error) { return at(p[0], p[1]), nil }),
 	expr.Function("coalesce", func(p ...any) (any, error) {
 		for _, v := range p {
 			if v != nil && v != "" {
@@ -96,4 +98,37 @@ func mention(v any) string {
 		name = ToString(u["username"])
 	}
 	return `<a href="tg://user?id=` + ToString(u["id"]) + `">` + html.EscapeString(name) + `</a>`
+}
+
+func at(container, key any) any {
+	switch c := container.(type) {
+	case []any:
+		i, ok := ToInt64(key)
+		if !ok {
+			return nil
+		}
+		if i < 0 {
+			i += int64(len(c))
+		}
+		if i < 0 || i >= int64(len(c)) {
+			return nil
+		}
+		return c[i]
+	case []string:
+		i, ok := ToInt64(key)
+		if !ok || i < 0 || i >= int64(len(c)) {
+			return nil
+		}
+		return c[i]
+	case map[string]any:
+		return c[ToString(key)]
+	case string:
+		i, ok := ToInt64(key)
+		r := []rune(c)
+		if !ok || i < 0 || i >= int64(len(r)) {
+			return nil
+		}
+		return string(r[i])
+	}
+	return nil
 }

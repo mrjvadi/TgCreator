@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mrjvadi/tgcreator/internal/tg"
 	"github.com/mrjvadi/tgcreator/internal/tmpl"
@@ -21,11 +23,15 @@ type Exec struct {
 	Log     *slog.Logger
 
 	stateKey string
+	steps    int   // shared by nested branches (logic.foreach)
+	cur      *node // node being executed
+	bg       *sync.WaitGroup
 }
 
 var messageTypes = map[string]bool{
 	"message": true, "edited_message": true, "channel_post": true,
 	"edited_channel_post": true, "business_message": true, "edited_business_message": true,
+	"guest_message": true,
 }
 
 // UpdateType returns the payload key of an update ("message", ...).
@@ -174,4 +180,66 @@ func (x *Exec) SaveState(st map[string]any) error {
 		return x.E.state.Delete(x.Ctx, x.stateKey)
 	}
 	return x.E.state.Set(x.Ctx, x.stateKey, st)
+}
+
+// Brancher returns a function that synchronously runs the nodes connected
+// to the given output of the node currently executing. Used by nodes that
+// run a sub-flow several times (logic.foreach).
+func (x *Exec) Brancher() func(output string) {
+	n := x.cur
+	return func(output string) { x.E.run(x, n.next[output]) }
+}
+
+// After runs the nodes connected to output of the current node once d has
+// passed, without blocking the worker: other updates of the chat keep
+// flowing meanwhile. The delayed steps see a snapshot of vars and results.
+func (x *Exec) After(d time.Duration, output string) {
+	targets := x.cur.next[output]
+	if len(targets) == 0 {
+		return
+	}
+	cp := x.fork()
+	e := x.E
+	if x.bg != nil {
+		x.bg.Add(1)
+	}
+	e.deferred.Add(1)
+	go func() {
+		defer func() {
+			e.deferred.Done()
+			if x.bg != nil {
+				x.bg.Done()
+			}
+		}()
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-t.C:
+		case <-e.stop.Done():
+			e.log.Warn("delayed step skipped: shutting down", "node", targets[0].spec.ID)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(x.Ctx), e.timeout)
+		defer cancel()
+		cp.Ctx = ctx
+		e.run(cp, targets)
+	}()
+}
+
+func (x *Exec) fork() *Exec {
+	cp := *x
+	cp.Vars = make(map[string]any, len(x.Vars))
+	for k, v := range x.Vars {
+		cp.Vars[k] = v
+	}
+	cp.Results = make(map[string]any, len(x.Results))
+	for k, v := range x.Results {
+		cp.Results[k] = v
+	}
+	cp.Env = make(map[string]any, len(x.Env))
+	for k, v := range x.Env {
+		cp.Env[k] = v
+	}
+	cp.Env["vars"], cp.Env["nodes"] = cp.Vars, cp.Results
+	return &cp
 }

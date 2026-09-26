@@ -56,8 +56,25 @@ func init() {
 		},
 	})
 	engine.Register(engine.NodeType{
+		Name:        "logic.foreach",
+		Description: "Run the \"item\" output once per element of items (vars.item, vars.index), then \"done\". Params: items, delay (between items, e.g. \"40ms\" for broadcasts).",
+		New: func(b *engine.Build, n workflow.Node) (any, error) {
+			items, err := b.Param(n, "items", []any{})
+			if err != nil {
+				return nil, err
+			}
+			var delay time.Duration
+			if s, ok := n.Params["delay"].(string); ok && s != "" {
+				if delay, err = time.ParseDuration(s); err != nil {
+					return nil, fmt.Errorf("delay: %w", err)
+				}
+			}
+			return &foreachNode{items: items, delay: delay}, nil
+		},
+	})
+	engine.Register(engine.NodeType{
 		Name:        "logic.delay",
-		Description: "Wait. Params: duration (\"1.5s\", \"200ms\").",
+		Description: "Continue the branch after a pause without blocking other updates. Params: duration (\"10s\", \"200ms\").",
 		New: func(b *engine.Build, n workflow.Node) (any, error) {
 			d, err := b.Param(n, "duration", "1s")
 			return &delayNode{d: d}, err
@@ -168,12 +185,9 @@ func (n *delayNode) Exec(x *engine.Exec) (engine.Result, error) {
 	if err != nil {
 		return engine.Result{}, err
 	}
-	select {
-	case <-time.After(d):
-	case <-x.Ctx.Done():
-		return engine.Result{}, x.Ctx.Err()
-	}
-	return engine.Result{Output: engine.Main}, nil
+	// The rest of the branch runs later; the worker is free meanwhile.
+	x.After(d, engine.Main)
+	return engine.Result{Data: map[string]any{"delayed": s}}, nil
 }
 
 type stateSet struct {
@@ -201,4 +215,34 @@ func (n *stateSet) Exec(x *engine.Exec) (engine.Result, error) {
 		}
 	}
 	return engine.Result{Output: engine.Main, Data: st}, x.SaveState(st)
+}
+
+type foreachNode struct {
+	items tmpl.Value
+	delay time.Duration
+}
+
+func (n *foreachNode) Exec(x *engine.Exec) (engine.Result, error) {
+	v, err := x.Eval(n.items)
+	if err != nil {
+		return engine.Result{}, err
+	}
+	list, ok := v.([]any)
+	if !ok && v != nil {
+		return engine.Result{}, fmt.Errorf("items must be a list, got %T", v)
+	}
+	branch := x.Brancher()
+	for i, item := range list {
+		if i > 0 && n.delay > 0 {
+			select {
+			case <-time.After(n.delay):
+			case <-x.Ctx.Done():
+				return engine.Result{}, x.Ctx.Err()
+			}
+		}
+		x.SetVar("item", item)
+		x.SetVar("index", i)
+		branch("item")
+	}
+	return engine.Result{Output: "done", Data: map[string]any{"count": len(list)}}, nil
 }

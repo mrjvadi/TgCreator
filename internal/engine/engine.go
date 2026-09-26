@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mrjvadi/tgcreator/internal/tg"
@@ -47,6 +48,10 @@ type Engine struct {
 	botUsername string
 	maxSteps    int
 	timeout     time.Duration
+	onHandled   func(u map[string]any)
+
+	stop     context.Context // cancelled on shutdown; aborts pending delays
+	deferred sync.WaitGroup  // all delayed steps, waited for on shutdown
 }
 
 // Options configure New.
@@ -54,6 +59,9 @@ type Options struct {
 	Logger *slog.Logger
 	// Client overrides the Telegram client (tests, custom transports).
 	Client *tg.Client
+	// OnUpdateHandled is called after every update has been fully handled
+	// by Run (metrics, tests).
+	OnUpdateHandled func(u map[string]any)
 }
 
 // New compiles a workflow. It does not connect to anything, so it is also
@@ -70,6 +78,8 @@ func New(wf *workflow.Workflow, opts Options) (*Engine, error) {
 		publicEnv: publicEnv(),
 		botInfo:   map[string]any{},
 		maxSteps:  wf.Runtime.MaxSteps,
+		onHandled: opts.OnUpdateHandled,
+		stop:      context.Background(),
 	}
 	if e.log == nil {
 		e.log = slog.Default()
@@ -268,14 +278,23 @@ func (e *Engine) SetBotInfo(me map[string]any) {
 }
 
 // HandleUpdate runs every trigger matching the update. Safe for concurrent use.
+// It returns once the update is completely handled, including steps
+// scheduled after a logic.delay.
 func (e *Engine) HandleUpdate(ctx context.Context, u map[string]any) {
+	e.handle(ctx, u).Wait()
+}
+
+// handle runs the synchronous part of the flows; delayed steps continue in
+// the background and are tracked by the returned WaitGroup.
+func (e *Engine) handle(ctx context.Context, u map[string]any) *sync.WaitGroup {
+	bg := &sync.WaitGroup{}
 	typ := UpdateType(u)
 	cands := e.triggers[typ]
 	if wild := e.triggers["*"]; len(wild) > 0 {
 		cands = append(cands[:len(cands):len(cands)], wild...)
 	}
 	if len(cands) == 0 {
-		return
+		return bg
 	}
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
@@ -298,6 +317,7 @@ func (e *Engine) HandleUpdate(ctx context.Context, u map[string]any) {
 	for _, t := range cands {
 		x := e.newExec(ctx, u, typ, base)
 		x.stateKey = stateKey
+		x.bg = bg
 		data, ok := t.trigger.Match(x)
 		if !ok {
 			continue
@@ -309,6 +329,7 @@ func (e *Engine) HandleUpdate(ctx context.Context, u map[string]any) {
 			base["state"] = st
 		}
 	}
+	return bg
 }
 
 func stateKeyFor(env tmpl.Env) string {
@@ -325,8 +346,9 @@ func (e *Engine) run(x *Exec, start []*node) {
 	for i := len(start) - 1; i >= 0; i-- {
 		stack = append(stack, start[i])
 	}
-	for steps := 0; len(stack) > 0; steps++ {
-		if steps >= e.maxSteps {
+	for len(stack) > 0 {
+		x.steps++
+		if x.steps > e.maxSteps {
 			e.log.Error("max steps reached, stopping flow", "limit", e.maxSteps)
 			return
 		}
@@ -337,6 +359,7 @@ func (e *Engine) run(x *Exec, start []*node) {
 		n := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
+		x.cur = n
 		res, err := n.action.Exec(x)
 		if err != nil {
 			errData := map[string]any{"error": err.Error(), "node": n.spec.ID}

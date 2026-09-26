@@ -135,11 +135,17 @@ func cmdCompose(args []string) error {
 	if target == "" {
 		target = filepath.Join(filepath.Dir(*path), "docker-compose.yml")
 	}
+	var mounts []string
+	// Files referenced as file:///app/assets/... live in ./assets.
+	if st, err := os.Stat(filepath.Join(filepath.Dir(*path), "assets")); err == nil && st.IsDir() {
+		mounts = append(mounts, "./assets:/app/assets:ro")
+	}
 	yml, err := compose.Generate(wf, e.Requirements(), compose.Options{
 		WorkflowFile: "./" + filepath.Base(*path),
 		Image:        *image,
 		BuildContext: *build,
 		Project:      *project,
+		ExtraMounts:  mounts,
 	})
 	if err != nil {
 		return err

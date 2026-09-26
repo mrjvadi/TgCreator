@@ -137,7 +137,9 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 | `logic.if` | true / false | `condition` |
 | `logic.switch` | نام case یا default | `value`، `cases` |
 | `logic.set` | main | `vars` |
-| `logic.delay`، `logic.stop`، `logic.log` | main | |
+| `logic.foreach` | item / done | `items`، `delay`؛ برای هر عضو `vars.item` و `vars.index` (مثلاً ارسال همگانی) |
+| `logic.delay` | main | ادامهٔ شاخه بعد از `duration` اجرا می‌شود، **بدون** این‌که پیام‌های دیگر چت منتظر بمانند (مثلاً حذف خودکار هشدار بعد از ۱۰ ثانیه) |
+| `logic.stop`، `logic.log` | main | |
 | `state.set` / `state.clear` | main | حالت هر کاربر در هر چت |
 | `redis.get/set/del/incr/command` | main | `redis.incr` با `ttl` برای ضد flood مناسب است |
 | `db.query` / `db.exec` | main | `db` (پیش‌فرض `main`)، `query`، `args`، `single` |
@@ -172,7 +174,32 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 
 ```bash
 go test -race ./...
-# تست یکپارچه با Redis و Postgres واقعی:
+```
+
+### شبیه‌ساز تلگرام (`internal/tgsim`)
+
+برای تست بدون ربات واقعی، یک Bot API ساختگی داریم که:
+
+- **هر درخواست را با مشخصات رسمی Bot API مقایسه می‌کند** (`internal/tgsim/botapi.json`، نسخهٔ 10.3). نام متد، پارامترهای اجباری، پارامترهای ناشناخته، نوع هر مقدار (به‌صورت بازگشتی در اشیای تو در تو) و فایل‌های `attach://` بررسی می‌شوند.
+- **مثل تلگرام واقعی رفتار می‌کند**:
+  - چت‌ها، اعضا، سطح دسترسی‌ها، پیام‌ها، حذف و ویرایش را نگه می‌دارد.
+  - HTML را اعتبارسنجی می‌کند.
+  - همان خطاهای تلگرام را برمی‌گرداند، مثل `bot was blocked by the user`، `message can't be deleted`، `message is not modified`، `not enough rights` و `query is too old`.
+  - `allowed_updates` را رعایت می‌کند.
+- آزمون `TestEveryBotAPIMethod` **همهٔ متدهای** Bot API را از طریق ران‌تایم صدا می‌زند (۱۸۴ متد به‌علاوهٔ `getUpdates` که خود ران‌تایم استفاده می‌کند، همراه با آپلود فایل) و انتظار صفر خطای مشخصات دارد.
+- آزمون `TestScenarioCommunityBot` نمونهٔ `examples/community-bot` را با ۶ کاربر، سوپرگروه، گروه معمولی، کانال، inline mode و پرداخت Stars روی ران‌تایم واقعی (long polling) و Redis و Postgres واقعی اجرا می‌کند. گزارش گفت‌وگو را در [examples/community-bot/scenario-transcript.md](examples/community-bot/scenario-transcript.md) ببینید.
+- آزمون `TestWebhookMenuBot` حالت webhook را تست می‌کند، از جمله رد شدن درخواست جعلی.
+
+```bash
+# سناریو (جدول‌های دیتابیس تست و کلیدهای Redis آن پاک می‌شوند):
+TGC_TEST_REDIS_URL=redis://localhost:6379/15 \
+TGC_TEST_DB_DSN=postgres://user@localhost/scenario?sslmode=disable \
+TGC_SIM_TRANSCRIPT=/tmp/transcript \
+  go test -race -run Scenario -v ./internal/tgsim/
+
+# تست یکپارچهٔ نمونهٔ anti-link:
 TGC_REDIS_URL=redis://localhost:6379/0 TGC_DB_MAIN_DSN=postgres://... \
   go test -tags integration ./internal/nodes/
 ```
+
+به‌روزرسانی مشخصات Bot API: فایل `api.json` از [telegram-bot-api-spec](https://github.com/PaulSonOfLars/telegram-bot-api-spec) را بگیرید و `internal/tgsim/botapi.json` را جایگزین کنید. آزمون `TestRuntimeKnowsEveryUpdateType` هر نوع آپدیت جدید را گزارش می‌کند.

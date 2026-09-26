@@ -10,11 +10,12 @@ import (
 var AllUpdateTypes = []string{
 	"message", "edited_message", "channel_post", "edited_channel_post",
 	"business_connection", "business_message", "edited_business_message",
-	"deleted_business_messages", "message_reaction", "message_reaction_count",
-	"inline_query", "chosen_inline_result", "callback_query", "shipping_query",
-	"pre_checkout_query", "purchased_paid_media", "poll", "poll_answer",
-	"my_chat_member", "chat_member", "chat_join_request", "chat_boost",
-	"removed_chat_boost",
+	"deleted_business_messages", "guest_message", "message_reaction",
+	"message_reaction_count", "inline_query", "chosen_inline_result",
+	"callback_query", "shipping_query", "pre_checkout_query",
+	"purchased_paid_media", "poll", "poll_answer", "my_chat_member",
+	"chat_member", "chat_join_request", "chat_boost", "removed_chat_boost",
+	"managed_bot", "subscription", "stopped_message_generation",
 }
 
 // GetUpdates long-polls for updates and returns them as generic maps so

@@ -49,13 +49,20 @@ func newDispatcher(ctx context.Context, e *Engine) *dispatcher {
 }
 
 func (d *dispatcher) handle(ctx context.Context, u map[string]any) {
+	bg := &sync.WaitGroup{}
 	defer func() {
 		if r := recover(); r != nil {
 			d.e.log.Error("panic while handling update", "panic", r)
 		}
+		d.count.Add(1)
+		if d.e.onHandled != nil {
+			go func() {
+				bg.Wait()
+				d.e.onHandled(u)
+			}()
+		}
 	}()
-	d.e.HandleUpdate(ctx, u)
-	d.count.Add(1)
+	bg = d.e.handle(ctx, u)
 }
 
 func (d *dispatcher) push(u map[string]any) {
@@ -98,7 +105,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	// Handlers keep running after ctx is cancelled so in-flight flows can
 	// finish; the dispatcher drains before returning.
 	d := newDispatcher(context.WithoutCancel(ctx), e)
-	defer d.close()
+	e.stop = ctx
+	defer func() {
+		d.close()
+		e.deferred.Wait()
+	}()
 
 	if addr := e.WF.Runtime.HealthListen; addr != "" {
 		go e.serveHealth(ctx, addr, d)

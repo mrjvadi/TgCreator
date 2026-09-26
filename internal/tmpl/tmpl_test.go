@@ -19,6 +19,7 @@ func TestCompile(t *testing.T) {
 	env := Env{
 		"chat":    map[string]any{"id": -1001234567890.0},
 		"from":    map[string]any{"id": 42.0, "first_name": "Ali <3"},
+		"args":    []any{},
 		"message": map[string]any{"text": "see https://x.com", "entities": []any{map[string]any{"type": "url"}}},
 	}
 	tests := []struct {
@@ -34,6 +35,11 @@ func TestCompile(t *testing.T) {
 		{"{{ hasLink(message) }}", true},
 		{"{{ hasLink('hello') }}", false},
 		{"{{ upper(from.first_name) }}", "ALI <3"},
+		{"{{ args[0] ?? 'none' }}", "none"},
+		{"{{ message.entities[0].type }}", "url"},
+		{"{{ message.entities[5].type }}", nil},
+		{"{{ message.entities[-1].type }}", "url"},
+		{"{{ from['first_name'] }}", "Ali <3"},
 	}
 	for _, tt := range tests {
 		if got := eval(t, tt.in, env); got != tt.want {

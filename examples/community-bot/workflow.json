@@ -1,0 +1,417 @@
+{
+  "name": "Gophers community bot",
+  "version": 1,
+  "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
+  "runtime": { "workers": 16, "state_ttl": "30m", "state_backend": "redis", "health_listen": ":9090" },
+  "variables": {
+    "owner_id": 101,
+    "warn_limit": 3,
+    "flood_limit": 5,
+    "flood_window": 10,
+    "auto_delete": "10s",
+    "vip_price": 50,
+    "assets": "/app/assets",
+    "site": "https://go.dev",
+    "group_link": "https://t.me/gophers_ir"
+  },
+  "services": {
+    "redis": { "url": "${REDIS_URL:-redis://localhost:6379/0}" },
+    "databases": {
+      "main": {
+        "driver": "postgres",
+        "dsn": "${DATABASE_URL:-postgres://tgc:tgc@localhost:5432/main?sslmode=disable}",
+        "migrations": [
+          "CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY, first_name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '', phone TEXT, referrer BIGINT, blocked BOOLEAN NOT NULL DEFAULT false, joined_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+          "CREATE TABLE IF NOT EXISTS feedback (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+          "CREATE TABLE IF NOT EXISTS warnings (chat_id BIGINT NOT NULL, user_id BIGINT NOT NULL, count INT NOT NULL, PRIMARY KEY (chat_id, user_id))",
+          "CREATE TABLE IF NOT EXISTS locks (chat_id BIGINT NOT NULL, kind TEXT NOT NULL, set_by BIGINT, set_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_id, kind))",
+          "CREATE TABLE IF NOT EXISTS orders (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, payload TEXT NOT NULL, amount INT NOT NULL, charge_id TEXT UNIQUE NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+        ]
+      }
+    }
+  },
+  "nodes": [
+    { "id": "start", "type": "trigger.command", "name": "/start (private)", "params": { "commands": ["start"], "chat_types": ["private"] } },
+    {
+      "id": "save_user", "type": "db.query",
+      "params": {
+        "single": true,
+        "query": "INSERT INTO users (user_id, first_name, username, referrer) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id) DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username, blocked = false RETURNING (xmax = 0) AS is_new",
+        "args": [
+          "{{ from.id }}", "{{ from.first_name }}", "{{ from.username ?? '' }}",
+          "{{ (args[0] ?? '') startsWith 'ref_' && trimPrefix(args[0], 'ref_') != str(from.id) ? int(trimPrefix(args[0], 'ref_')) : nil }}"
+        ]
+      }
+    },
+    {
+      "id": "menu", "type": "telegram.send_message",
+      "params": {
+        "text": "سلام <b>{{ escapeHTML(from.first_name) }}</b> 👋\nبه ربات جامعهٔ گوفرها خوش آمدی. یکی از گزینه‌ها را انتخاب کن:",
+        "buttons": [
+          [{ "text": "📷 عکس خوش‌آمد", "callback_data": "show:photo" }, { "text": "🎞 آلبوم", "callback_data": "show:album" }],
+          [{ "text": "✍️ ارسال نظر", "callback_data": "feedback" }],
+          [{ "text": "⭐️ اشتراک ویژه", "callback_data": "buy" }, { "text": "🔗 لینک دعوت", "callback_data": "ref" }],
+          [{ "text": "🌐 سایت", "url": "{{ vars.site }}" }]
+        ]
+      }
+    },
+    {
+      "id": "is_referral", "type": "logic.if",
+      "params": { "condition": "nodes.save_user.is_new == true && (args[0] ?? '') startsWith 'ref_' && trimPrefix(args[0], 'ref_') != str(from.id)" }
+    },
+    {
+      "id": "notify_referrer", "type": "tg.sendMessage", "continue_on_error": true,
+      "params": { "chat_id": "{{ int(trimPrefix(args[0], 'ref_')) }}", "text": "🎉 {{ from.first_name }} با لینک دعوت شما عضو ربات شد!" }
+    },
+
+    { "id": "on_photo", "type": "trigger.callback", "params": { "data": "show:photo" } },
+    { "id": "ack_photo", "type": "telegram.answer_callback" },
+    {
+      "id": "send_photo", "type": "telegram.send_media",
+      "params": {
+        "type": "photo",
+        "file": "file://{{ vars.assets }}/welcome.jpg",
+        "caption": "🐹 به جمع <b>گوفرهای ایران</b> خوش آمدی!",
+        "buttons": [[{ "text": "🔙 بازگشت به منو", "callback_data": "menu" }]]
+      }
+    },
+    { "id": "on_album", "type": "trigger.callback", "params": { "data": "show:album" } },
+    { "id": "ack_album", "type": "telegram.answer_callback", "params": { "text": "در حال ارسال آلبوم…" } },
+    {
+      "id": "send_album", "type": "telegram.send_media_group",
+      "params": {
+        "media": [
+          { "type": "photo", "media": "file://{{ vars.assets }}/welcome.jpg", "caption": "آلبوم گوفرها" },
+          { "type": "photo", "media": "https://go.dev/images/gophers/ladder.png" },
+          { "type": "video", "media": "https://go.dev/images/gophers/intro.mp4" }
+        ]
+      }
+    },
+    { "id": "on_menu", "type": "trigger.callback", "params": { "data": "menu" } },
+    { "id": "ack_menu", "type": "telegram.answer_callback" },
+    { "id": "del_media", "type": "telegram.delete_message", "continue_on_error": true },
+    { "id": "on_ref", "type": "trigger.callback", "params": { "data": "ref" } },
+    {
+      "id": "ref_alert", "type": "telegram.answer_callback",
+      "params": { "show_alert": true, "text": "🔗 لینک دعوت اختصاصی شما:\nhttps://t.me/{{ bot.username }}?start=ref_{{ from.id }}" }
+    },
+
+    { "id": "on_feedback", "type": "trigger.callback", "params": { "data": "feedback" } },
+    { "id": "ack_fb", "type": "telegram.answer_callback" },
+    {
+      "id": "ask_fb", "type": "telegram.edit_message",
+      "params": { "text": "✍️ نظرت را در یک پیام بنویس و بفرست.", "buttons": [[{ "text": "❌ لغو", "callback_data": "feedback:cancel" }]] }
+    },
+    { "id": "fb_state", "type": "state.set", "params": { "values": { "step": "feedback", "prompt": "{{ message.message_id }}" } } },
+    { "id": "on_fb_cancel", "type": "trigger.callback", "params": { "data": "feedback:cancel" } },
+    { "id": "fb_cancel_state", "type": "state.clear" },
+    { "id": "fb_cancel_edit", "type": "telegram.edit_message", "params": { "text": "لغو شد. برای منو /start را بفرست." } },
+    { "id": "fb_cancel_ack", "type": "telegram.answer_callback", "params": { "text": "لغو شد" } },
+    {
+      "id": "got_feedback", "type": "trigger.message",
+      "params": { "chat_types": ["private"], "condition": "state.step == 'feedback' && command == '' && text != ''" }
+    },
+    { "id": "save_fb", "type": "db.exec", "params": { "query": "INSERT INTO feedback (user_id, text) VALUES ($1, $2)", "args": ["{{ from.id }}", "{{ text }}"] } },
+    { "id": "fb_thanks", "type": "telegram.send_message", "params": { "text": "🙏 ممنون! نظرت ثبت شد.", "reply": true } },
+    { "id": "fb_close_prompt", "type": "telegram.edit_buttons", "continue_on_error": true, "params": { "message_id": "{{ int(state.prompt) }}" } },
+    { "id": "fb_clear", "type": "state.clear" },
+    {
+      "id": "fb_notify_owner", "type": "tg.sendMessage", "continue_on_error": true,
+      "params": { "chat_id": "{{ vars.owner_id }}", "parse_mode": "HTML", "text": "📝 <b>نظر جدید</b> از {{ mention(from) }}:\n<blockquote>{{ escapeHTML(text) }}</blockquote>" }
+    },
+
+    { "id": "on_buy", "type": "trigger.callback", "params": { "data": "buy" } },
+    { "id": "ack_buy", "type": "telegram.answer_callback" },
+    {
+      "id": "invoice", "type": "tg.sendInvoice",
+      "params": {
+        "chat_id": "{{ chat.id }}", "title": "اشتراک ویژهٔ گوفرها", "description": "دسترسی به محتوای ویژه برای ۳۰ روز",
+        "payload": "vip:{{ from.id }}", "currency": "XTR", "prices": [{ "label": "VIP ۳۰ روزه", "amount": "{{ vars.vip_price }}" }]
+      }
+    },
+    { "id": "on_checkout", "type": "trigger.update", "params": { "on": ["pre_checkout_query"] } },
+    {
+      "id": "check_price", "type": "logic.if",
+      "params": { "condition": "payload.total_amount == vars.vip_price && payload.currency == 'XTR' && payload.invoice_payload startsWith 'vip:'" }
+    },
+    { "id": "checkout_ok", "type": "tg.answerPreCheckoutQuery", "params": { "pre_checkout_query_id": "{{ payload.id }}", "ok": true } },
+    {
+      "id": "checkout_bad", "type": "tg.answerPreCheckoutQuery",
+      "params": { "pre_checkout_query_id": "{{ payload.id }}", "ok": false, "error_message": "مبلغ یا سفارش نامعتبر است." }
+    },
+    { "id": "on_paid", "type": "trigger.message", "params": { "has": ["successful_payment"] } },
+    {
+      "id": "save_order", "type": "db.exec",
+      "params": {
+        "query": "INSERT INTO orders (user_id, payload, amount, charge_id) VALUES ($1, $2, $3, $4) ON CONFLICT (charge_id) DO NOTHING",
+        "args": ["{{ from.id }}", "{{ message.successful_payment.invoice_payload }}", "{{ message.successful_payment.total_amount }}", "{{ message.successful_payment.telegram_payment_charge_id }}"]
+      }
+    },
+    { "id": "paid_msg", "type": "telegram.send_message", "params": { "text": "✅ پرداخت {{ message.successful_payment.total_amount }} ⭐️ انجام شد. اشتراک ویژهٔ شما فعال است!" } },
+
+    { "id": "contact_cmd", "type": "trigger.command", "params": { "commands": ["contact"], "chat_types": ["private"] } },
+    {
+      "id": "ask_contact", "type": "telegram.send_message",
+      "params": { "text": "برای تکمیل پروفایل، شماره‌ات را با دکمهٔ زیر بفرست:", "keyboard": [[{ "text": "📱 ارسال شماره من", "request_contact": true }]] }
+    },
+    { "id": "got_contact", "type": "trigger.message", "params": { "has": ["contact"], "chat_types": ["private"], "condition": "message.contact.user_id == from.id" } },
+    { "id": "save_phone", "type": "db.exec", "params": { "query": "UPDATE users SET phone = $1 WHERE user_id = $2", "args": ["{{ message.contact.phone_number }}", "{{ from.id }}"] } },
+    { "id": "contact_thanks", "type": "telegram.send_message", "params": { "text": "✅ شماره {{ message.contact.phone_number }} ثبت شد.", "remove_keyboard": true } },
+
+    { "id": "stats_cmd", "type": "trigger.command", "params": { "commands": ["stats"], "chat_types": ["private"], "condition": "from.id == vars.owner_id" } },
+    {
+      "id": "stats", "type": "db.query",
+      "params": {
+        "single": true,
+        "query": "SELECT (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM users WHERE blocked) AS blocked, (SELECT count(*) FROM users WHERE referrer IS NOT NULL) AS referred, (SELECT count(*) FROM feedback) AS feedback, (SELECT count(*) FROM orders) AS orders, (SELECT coalesce(sum(amount), 0) FROM orders) AS stars"
+      }
+    },
+    {
+      "id": "stats_msg", "type": "telegram.send_message",
+      "params": { "text": "📊 <b>آمار ربات</b>\n👥 کاربران: {{ nodes.stats.users }} (دعوتی: {{ nodes.stats.referred }})\n🚫 ربات را بلاک کرده‌اند: {{ nodes.stats.blocked }}\n📝 نظرها: {{ nodes.stats.feedback }}\n🧾 سفارش‌ها: {{ nodes.stats.orders }} ({{ nodes.stats.stars }} ⭐️)" }
+    },
+    { "id": "bc_cmd", "type": "trigger.command", "params": { "commands": ["broadcast"], "chat_types": ["private"], "condition": "from.id == vars.owner_id && args_text != ''" } },
+    { "id": "bc_users", "type": "db.query", "params": { "query": "SELECT user_id, first_name FROM users WHERE NOT blocked ORDER BY user_id" } },
+    { "id": "bc_loop", "type": "logic.foreach", "params": { "items": "{{ nodes.bc_users }}", "delay": "35ms" } },
+    { "id": "bc_send", "type": "tg.sendMessage", "params": { "chat_id": "{{ vars.item.user_id }}", "text": "📢 {{ args_text }}" } },
+    { "id": "bc_ok", "type": "logic.set", "params": { "vars": { "sent": "{{ (vars.sent ?? 0) + 1 }}" } } },
+    { "id": "bc_blocked", "type": "db.exec", "params": { "query": "UPDATE users SET blocked = true WHERE user_id = $1", "args": ["{{ vars.item.user_id }}"] } },
+    { "id": "bc_fail", "type": "logic.set", "params": { "vars": { "failed": "{{ (vars.failed ?? 0) + 1 }}" } } },
+    { "id": "bc_report", "type": "telegram.send_message", "params": { "text": "📢 ارسال همگانی تمام شد: ✅ {{ vars.sent ?? 0 }} موفق، ❌ {{ vars.failed ?? 0 }} ناموفق" } },
+
+    { "id": "help_cmd", "type": "trigger.command", "params": { "commands": ["help"] } },
+    {
+      "id": "help_msg", "type": "telegram.send_message",
+      "params": { "text": "<b>راهنما</b>\n/start — منوی اصلی\n/contact — ثبت شماره\n\n<b>در گروه:</b>\n/lock link — قفل لینک (ادمین)\n/warn — اخطار با ریپلای (ادمین)\n/pin — سنجاق با ریپلای (ادمین)\n/poll — نظرسنجی\n/dice — تاس" }
+    },
+
+    { "id": "bot_added", "type": "trigger.update", "params": { "on": ["my_chat_member"], "condition": "payload.new_chat_member.status in ['member', 'administrator'] && payload.old_chat_member.status in ['left', 'kicked'] && chat.type != 'channel'" } },
+    { "id": "hello_group", "type": "tg.sendMessage", "params": { "chat_id": "{{ chat.id }}", "text": "سلام! 👋 من ربات مدیریت گوفرها هستم.\nبرای کار کامل (قفل لینک، ضد اسپم، اخطار) مرا ادمین کنید." } },
+
+    { "id": "welcome", "type": "trigger.message", "params": { "has": ["new_chat_members"], "chat_types": ["group", "supergroup"] } },
+    { "id": "wl_loop", "type": "logic.foreach", "params": { "items": "{{ filter(message.new_chat_members, !.is_bot) }}" } },
+    { "id": "wl_is_super", "type": "logic.if", "params": { "condition": "chat.type == 'supergroup'" } },
+    { "id": "wl_mute", "type": "tg.restrictChatMember", "params": { "chat_id": "{{ chat.id }}", "user_id": "{{ vars.item.id }}", "permissions": { "can_send_messages": false } } },
+    {
+      "id": "wl_captcha", "type": "telegram.send_message",
+      "params": {
+        "text": "👋 {{ mention(vars.item) }} به <b>{{ escapeHTML(chat.title) }}</b> خوش آمدی!\nبرای فعال شدن ارسال پیام، دکمهٔ زیر را بزن.",
+        "buttons": [[{ "text": "✅ من ربات نیستم", "callback_data": "human:{{ vars.item.id }}" }]]
+      }
+    },
+    { "id": "wl_plain", "type": "telegram.send_message", "params": { "text": "👋 {{ mention(vars.item) }} خوش آمدی!" } },
+    { "id": "captcha", "type": "trigger.callback", "params": { "prefix": "human:" } },
+    { "id": "is_self", "type": "logic.if", "params": { "condition": "nodes.captcha.suffix == str(from.id)" } },
+    {
+      "id": "unmute", "type": "tg.restrictChatMember",
+      "params": {
+        "chat_id": "{{ chat.id }}", "user_id": "{{ from.id }}",
+        "permissions": {
+          "can_send_messages": true, "can_send_audios": true, "can_send_documents": true, "can_send_photos": true,
+          "can_send_videos": true, "can_send_video_notes": true, "can_send_voice_notes": true, "can_send_polls": true,
+          "can_send_other_messages": true, "can_add_web_page_previews": true
+        }
+      }
+    },
+    { "id": "captcha_ok", "type": "telegram.answer_callback", "params": { "text": "✅ تأیید شدی، خوش آمدی!" } },
+    { "id": "captcha_del", "type": "telegram.delete_message" },
+    { "id": "not_you", "type": "telegram.answer_callback", "params": { "text": "⛔️ این دکمه مال تو نیست!", "show_alert": true } },
+
+    { "id": "lock_cmd", "type": "trigger.command", "params": { "commands": ["lock", "unlock"], "chat_types": ["group", "supergroup"] } },
+    { "id": "lk_admin", "type": "telegram.check_admin" },
+    { "id": "lk_denied", "type": "telegram.send_message", "params": { "text": "⛔️ فقط ادمین‌ها می‌توانند قفل‌ها را تغییر دهند.", "reply": true } },
+    { "id": "lk_which", "type": "logic.switch", "params": { "value": "{{ command + ':' + (args[0] ?? '') }}", "cases": ["lock:link", "unlock:link"] } },
+    { "id": "lock_redis", "type": "redis.set", "params": { "key": "lock:link:{{ chat.id }}", "value": "1" } },
+    {
+      "id": "lock_db", "type": "db.exec",
+      "params": { "query": "INSERT INTO locks (chat_id, kind, set_by) VALUES ($1, 'link', $2) ON CONFLICT (chat_id, kind) DO UPDATE SET set_by = EXCLUDED.set_by, set_at = now()", "args": ["{{ chat.id }}", "{{ from.id }}"] }
+    },
+    { "id": "lock_done", "type": "telegram.send_message", "params": { "text": "🔒 ارسال لینک در این گروه قفل شد.", "reply": true } },
+    { "id": "unlock_redis", "type": "redis.del", "params": { "key": "lock:link:{{ chat.id }}" } },
+    { "id": "unlock_db", "type": "db.exec", "params": { "query": "DELETE FROM locks WHERE chat_id = $1 AND kind = 'link'", "args": ["{{ chat.id }}"] } },
+    { "id": "unlock_done", "type": "telegram.send_message", "params": { "text": "🔓 قفل لینک برداشته شد.", "reply": true } },
+    { "id": "lk_usage", "type": "telegram.send_message", "params": { "text": "استفاده: <code>/lock link</code> یا <code>/unlock link</code>", "reply": true } },
+
+    { "id": "link_msg", "type": "trigger.message", "params": { "updates": ["message", "edited_message"], "chat_types": ["group", "supergroup"], "condition": "hasLink(message)" } },
+    { "id": "get_lock", "type": "redis.get", "params": { "key": "lock:link:{{ chat.id }}" } },
+    { "id": "is_locked", "type": "logic.if", "params": { "condition": "nodes.get_lock == '1'" } },
+    { "id": "link_admin", "type": "telegram.check_admin" },
+    { "id": "del_link", "type": "telegram.delete_message" },
+    { "id": "need_rights", "type": "telegram.send_message", "params": { "text": "⚠️ برای حذف لینک‌ها باید مرا ادمین کنید (دسترسی حذف پیام)." } },
+    { "id": "link_warn", "type": "telegram.send_message", "params": { "text": "🚫 {{ mention(from) }}، ارسال لینک در این گروه ممنوع است." } },
+    { "id": "link_wait", "type": "logic.delay", "params": { "duration": "{{ vars.auto_delete }}" } },
+    { "id": "link_warn_del", "type": "tg.deleteMessage", "continue_on_error": true, "params": { "chat_id": "{{ chat.id }}", "message_id": "{{ nodes.link_warn.message_id }}" } },
+
+    { "id": "flood_msg", "type": "trigger.message", "params": { "chat_types": ["group", "supergroup"], "condition": "command == '' && message.new_chat_members == nil" } },
+    { "id": "flood_count", "type": "redis.incr", "params": { "key": "flood:{{ chat.id }}:{{ from.id }}", "ttl": "{{ vars.flood_window }}" } },
+    { "id": "flood_hit", "type": "logic.if", "params": { "condition": "nodes.flood_count == vars.flood_limit + 1" } },
+    { "id": "flood_admin", "type": "telegram.check_admin" },
+    {
+      "id": "flood_mute", "type": "tg.restrictChatMember",
+      "params": { "chat_id": "{{ chat.id }}", "user_id": "{{ from.id }}", "permissions": { "can_send_messages": false }, "until_date": "{{ now().Unix() + 3600 }}" }
+    },
+    { "id": "flood_notice", "type": "telegram.send_message", "params": { "text": "🔇 {{ mention(from) }} به دلیل ارسال پیام‌های پشت‌سرهم برای ۱ ساعت بی‌صدا شد." } },
+
+    { "id": "warn_cmd", "type": "trigger.command", "params": { "commands": ["warn"], "chat_types": ["group", "supergroup"] } },
+    { "id": "w_admin", "type": "telegram.check_admin" },
+    { "id": "w_denied", "type": "telegram.send_message", "params": { "text": "⛔️ فقط ادمین‌ها می‌توانند اخطار بدهند.", "reply": true } },
+    { "id": "w_has_reply", "type": "logic.if", "params": { "condition": "reply.from.id != nil && reply.from.id != bot.id" } },
+    { "id": "w_how", "type": "telegram.send_message", "params": { "text": "↩️ روی پیام کاربر ریپلای کن و /warn بفرست.", "reply": true } },
+    { "id": "w_target_admin", "type": "telegram.check_admin", "params": { "user_id": "{{ reply.from.id }}" } },
+    { "id": "w_cant", "type": "telegram.send_message", "params": { "text": "❌ نمی‌توان به ادمین اخطار داد.", "reply": true } },
+    {
+      "id": "w_add", "type": "db.query",
+      "params": {
+        "single": true,
+        "query": "INSERT INTO warnings (chat_id, user_id, count) VALUES ($1, $2, 1) ON CONFLICT (chat_id, user_id) DO UPDATE SET count = warnings.count + 1 RETURNING count",
+        "args": ["{{ chat.id }}", "{{ reply.from.id }}"]
+      }
+    },
+    { "id": "w_limit", "type": "logic.if", "params": { "condition": "nodes.w_add.count >= vars.warn_limit" } },
+    { "id": "w_ban", "type": "tg.banChatMember", "params": { "chat_id": "{{ chat.id }}", "user_id": "{{ reply.from.id }}" } },
+    { "id": "w_reset", "type": "db.exec", "params": { "query": "DELETE FROM warnings WHERE chat_id = $1 AND user_id = $2", "args": ["{{ chat.id }}", "{{ reply.from.id }}"] } },
+    { "id": "w_banned", "type": "telegram.send_message", "params": { "text": "⛔️ {{ mention(reply.from) }} پس از {{ vars.warn_limit }} اخطار از گروه اخراج شد." } },
+    { "id": "w_warned", "type": "telegram.send_message", "params": { "text": "⚠️ {{ mention(reply.from) }} اخطار گرفت ({{ nodes.w_add.count }}/{{ vars.warn_limit }}).", "reply": true } },
+
+    { "id": "pin_cmd", "type": "trigger.command", "params": { "commands": ["pin"], "chat_types": ["group", "supergroup"] } },
+    { "id": "p_admin", "type": "telegram.check_admin" },
+    { "id": "p_has_reply", "type": "logic.if", "params": { "condition": "reply.message_id != nil" } },
+    { "id": "do_pin", "type": "tg.pinChatMessage", "params": { "chat_id": "{{ chat.id }}", "message_id": "{{ reply.message_id }}", "disable_notification": true } },
+    { "id": "pinned", "type": "telegram.send_message", "params": { "text": "📌 سنجاق شد.", "reply": true } },
+    { "id": "pin_failed", "type": "telegram.send_message", "params": { "text": "⚠️ سنجاق نشد: دسترسی کافی ندارم." } },
+
+    { "id": "dice_cmd", "type": "trigger.command", "params": { "commands": ["dice"] } },
+    { "id": "dice", "type": "tg.sendDice", "params": { "chat_id": "{{ chat.id }}", "emoji": "🎲" } },
+
+    { "id": "poll_cmd", "type": "trigger.command", "params": { "commands": ["poll"], "chat_types": ["group", "supergroup"] } },
+    {
+      "id": "mk_poll", "type": "tg.sendPoll",
+      "params": {
+        "chat_id": "{{ chat.id }}", "question": "{{ args_text != '' ? args_text : 'زبان مورد علاقه‌ات؟' }}",
+        "options": [{ "text": "Go 🐹" }, { "text": "Rust 🦀" }, { "text": "Python 🐍" }], "is_anonymous": false
+      }
+    },
+    { "id": "save_poll", "type": "redis.set", "params": { "key": "poll:{{ nodes.mk_poll.poll.id }}", "value": "{{ chat.id }}", "ttl": "24h" } },
+    { "id": "poll_answer", "type": "trigger.update", "params": { "on": ["poll_answer"] } },
+    { "id": "pa_chat", "type": "redis.get", "params": { "key": "poll:{{ payload.poll_id }}" } },
+    { "id": "pa_known", "type": "logic.if", "params": { "condition": "nodes.pa_chat != nil" } },
+    { "id": "pa_note", "type": "tg.sendMessage", "params": { "chat_id": "{{ int(nodes.pa_chat) }}", "text": "🗳 {{ payload.user.first_name }} رأی داد." } },
+
+    { "id": "join_req", "type": "trigger.update", "params": { "on": ["chat_join_request"] } },
+    { "id": "jr_dm", "type": "tg.sendMessage", "continue_on_error": true, "params": { "chat_id": "{{ payload.user_chat_id }}", "text": "✅ درخواست عضویت شما در «{{ chat.title }}» تأیید شد. خوش آمدی!" } },
+    { "id": "jr_approve", "type": "tg.approveChatJoinRequest", "params": { "chat_id": "{{ chat.id }}", "user_id": "{{ from.id }}" } },
+
+    { "id": "chan_post", "type": "trigger.message", "params": { "updates": ["channel_post"], "condition": "text != ''" } },
+    { "id": "chan_react", "type": "tg.setMessageReaction", "params": { "chat_id": "{{ chat.id }}", "message_id": "{{ message.message_id }}", "reaction": [{ "type": "emoji", "emoji": "👍" }] } },
+    { "id": "chan_button", "type": "telegram.edit_buttons", "params": { "buttons": [[{ "text": "💬 گفت‌وگو در گروه", "url": "{{ vars.group_link }}" }]] } },
+
+    { "id": "inline_q", "type": "trigger.update", "params": { "on": ["inline_query"] } },
+    {
+      "id": "inline_ans", "type": "tg.answerInlineQuery",
+      "params": {
+        "inline_query_id": "{{ payload.id }}", "cache_time": 0,
+        "results": [
+          { "type": "article", "id": "docs", "title": "📘 مستندات Go: {{ text }}", "input_message_content": { "message_text": "📘 https://pkg.go.dev/search?q={{ text }}" } },
+          { "type": "article", "id": "play", "title": "▶️ Go Playground", "input_message_content": { "message_text": "https://go.dev/play" } }
+        ]
+      }
+    }
+  ],
+  "connections": {
+    "start": { "main": ["save_user"] },
+    "save_user": { "main": ["menu", "is_referral"] },
+    "is_referral": { "true": ["notify_referrer"] },
+
+    "on_photo": { "main": ["ack_photo", "send_photo"] },
+    "on_album": { "main": ["ack_album", "send_album"] },
+    "on_menu": { "main": ["ack_menu", "del_media"] },
+    "del_media": { "main": ["menu"] },
+    "on_ref": { "main": ["ref_alert"] },
+
+    "on_feedback": { "main": ["ack_fb", "ask_fb"] },
+    "ask_fb": { "main": ["fb_state"] },
+    "on_fb_cancel": { "main": ["fb_cancel_state", "fb_cancel_edit", "fb_cancel_ack"] },
+    "got_feedback": { "main": ["save_fb"] },
+    "save_fb": { "main": ["fb_thanks"] },
+    "fb_thanks": { "main": ["fb_close_prompt"] },
+    "fb_close_prompt": { "main": ["fb_clear"] },
+    "fb_clear": { "main": ["fb_notify_owner"] },
+
+    "on_buy": { "main": ["ack_buy", "invoice"] },
+    "on_checkout": { "main": ["check_price"] },
+    "check_price": { "true": ["checkout_ok"], "false": ["checkout_bad"] },
+    "on_paid": { "main": ["save_order"] },
+    "save_order": { "main": ["paid_msg"] },
+
+    "contact_cmd": { "main": ["ask_contact"] },
+    "got_contact": { "main": ["save_phone"] },
+    "save_phone": { "main": ["contact_thanks"] },
+
+    "stats_cmd": { "main": ["stats"] },
+    "stats": { "main": ["stats_msg"] },
+    "bc_cmd": { "main": ["bc_users"] },
+    "bc_users": { "main": ["bc_loop"] },
+    "bc_loop": { "item": ["bc_send"], "done": ["bc_report"] },
+    "bc_send": { "main": ["bc_ok"], "error": ["bc_blocked"] },
+    "bc_blocked": { "main": ["bc_fail"] },
+
+    "help_cmd": { "main": ["help_msg"] },
+    "bot_added": { "main": ["hello_group"] },
+
+    "welcome": { "main": ["wl_loop"] },
+    "wl_loop": { "item": ["wl_is_super"] },
+    "wl_is_super": { "true": ["wl_mute"], "false": ["wl_plain"] },
+    "wl_mute": { "main": ["wl_captcha"] },
+    "captcha": { "main": ["is_self"] },
+    "is_self": { "true": ["unmute"], "false": ["not_you"] },
+    "unmute": { "main": ["captcha_ok"] },
+    "captcha_ok": { "main": ["captcha_del"] },
+
+    "lock_cmd": { "main": ["lk_admin"] },
+    "lk_admin": { "true": ["lk_which"], "false": ["lk_denied"] },
+    "lk_which": { "lock:link": ["lock_redis"], "unlock:link": ["unlock_redis"], "default": ["lk_usage"] },
+    "lock_redis": { "main": ["lock_db"] },
+    "lock_db": { "main": ["lock_done"] },
+    "unlock_redis": { "main": ["unlock_db"] },
+    "unlock_db": { "main": ["unlock_done"] },
+
+    "link_msg": { "main": ["get_lock"] },
+    "get_lock": { "main": ["is_locked"] },
+    "is_locked": { "true": ["link_admin"] },
+    "link_admin": { "false": ["del_link"] },
+    "del_link": { "main": ["link_warn"], "error": ["need_rights"] },
+    "link_warn": { "main": ["link_wait"] },
+    "link_wait": { "main": ["link_warn_del"] },
+
+    "flood_msg": { "main": ["flood_count"] },
+    "flood_count": { "main": ["flood_hit"] },
+    "flood_hit": { "true": ["flood_admin"] },
+    "flood_admin": { "false": ["flood_mute"] },
+    "flood_mute": { "main": ["flood_notice"] },
+
+    "warn_cmd": { "main": ["w_admin"] },
+    "w_admin": { "true": ["w_has_reply"], "false": ["w_denied"] },
+    "w_has_reply": { "true": ["w_target_admin"], "false": ["w_how"] },
+    "w_target_admin": { "true": ["w_cant"], "false": ["w_add"] },
+    "w_add": { "main": ["w_limit"] },
+    "w_limit": { "true": ["w_ban"], "false": ["w_warned"] },
+    "w_ban": { "main": ["w_reset"] },
+    "w_reset": { "main": ["w_banned"] },
+
+    "pin_cmd": { "main": ["p_admin"] },
+    "p_admin": { "true": ["p_has_reply"] },
+    "p_has_reply": { "true": ["do_pin"] },
+    "do_pin": { "main": ["pinned"], "error": ["pin_failed"] },
+
+    "dice_cmd": { "main": ["dice"] },
+    "poll_cmd": { "main": ["mk_poll"] },
+    "mk_poll": { "main": ["save_poll"] },
+    "poll_answer": { "main": ["pa_chat"] },
+    "pa_chat": { "main": ["pa_known"] },
+    "pa_known": { "true": ["pa_note"] },
+
+    "join_req": { "main": ["jr_dm", "jr_approve"] },
+    "chan_post": { "main": ["chan_react", "chan_button"] },
+    "inline_q": { "main": ["inline_ans"] }
+  }
+}

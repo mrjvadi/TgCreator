@@ -286,3 +286,72 @@ func TestRunPolling(t *testing.T) {
 		t.Errorf("offsets = %v (second poll must ack update_id 1)", offsets)
 	}
 }
+
+// A logic.delay must not stall the worker: the next update of the same
+// chat is answered while the delayed branch is still waiting.
+func TestDelayDoesNotBlockChat(t *testing.T) {
+	var mu sync.Mutex
+	var texts []string
+	var polled int
+	sent := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		var p map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		var result any = true
+		switch method {
+		case "getMe":
+			result = map[string]any{"id": 1, "username": "b"}
+		case "getUpdates":
+			mu.Lock()
+			polled++
+			first := polled == 1
+			mu.Unlock()
+			if !first {
+				<-r.Context().Done()
+				return
+			}
+			slow, fast := msgUpdate("private", 5, "slow"), msgUpdate("private", 5, "fast")
+			fast["update_id"] = 2.0
+			result = []any{slow, fast}
+		case "sendMessage":
+			mu.Lock()
+			texts = append(texts, p["text"].(string))
+			mu.Unlock()
+			sent <- p["text"].(string)
+			result = map[string]any{"message_id": 1}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+	}))
+	defer srv.Close()
+
+	wf, _ := workflow.Parse([]byte(`{"name":"t","runtime":{"workers":1},"nodes":[
+	  {"id":"m","type":"trigger.message"},
+	  {"id":"is_slow","type":"logic.if","params":{"condition":"text == 'slow'"}},
+	  {"id":"wait","type":"logic.delay","params":{"duration":"700ms"}},
+	  {"id":"late","type":"telegram.send_message","params":{"text":"late"}},
+	  {"id":"quick","type":"telegram.send_message","params":{"text":"fast"}}],
+	  "connections":{"m":{"main":["is_slow"]},"is_slow":{"true":["wait"],"false":["quick"]},"wait":{"main":["late"]}}}`))
+	handled := make(chan struct{}, 2)
+	e, err := engine.New(wf, engine.Options{Client: tg.New("T", srv.URL), OnUpdateHandled: func(map[string]any) { handled <- struct{}{} }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- e.Run(ctx) }()
+
+	start := time.Now()
+	if first := <-sent; first != "fast" || time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("first reply %q after %v: the delay blocked the chat", first, time.Since(start))
+	}
+	if second := <-sent; second != "late" || time.Since(start) < 600*time.Millisecond {
+		t.Fatalf("second reply %q after %v", second, time.Since(start))
+	}
+	<-handled
+	<-handled // reported only once the delayed branch finished
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

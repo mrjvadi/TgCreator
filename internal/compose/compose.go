@@ -16,6 +16,7 @@ type Options struct {
 	Image        string // runtime image; ignored when BuildContext is set
 	BuildContext string // build the runtime from source (path to repo)
 	Project      string
+	ExtraMounts  []string // e.g. "./assets:/app/assets:ro"
 }
 
 // Generate renders docker-compose YAML for wf with the given requirements
@@ -46,7 +47,7 @@ func Generate(wf *workflow.Workflow, requires []string, opt Options) (string, er
 		env      = map[string]string{"TGC_BOT_TOKEN": "${BOT_TOKEN:?set BOT_TOKEN in .env}"}
 		deps     []string
 		drivers  = map[string]bool{}
-		mounts   = []string{opt.WorkflowFile + ":/app/workflow.json:ro"}
+		mounts   = append([]string{opt.WorkflowFile + ":/app/workflow.json:ro"}, opt.ExtraMounts...)
 	)
 
 	if needRedis {

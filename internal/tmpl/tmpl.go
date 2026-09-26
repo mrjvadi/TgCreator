@@ -93,7 +93,19 @@ func (l list) Eval(env Env) (any, error) {
 type nilSafe struct{}
 
 func (nilSafe) Visit(n *ast.Node) {
-	if m, ok := (*n).(*ast.MemberNode); ok && !m.Optional {
+	m, ok := (*n).(*ast.MemberNode)
+	if !ok {
+		return
+	}
+	// a[i] with a computed or numeric index: out of range yields nil.
+	if _, named := m.Property.(*ast.StringNode); !named {
+		ast.Patch(n, &ast.CallNode{
+			Callee:    &ast.IdentifierNode{Value: "at"},
+			Arguments: []ast.Node{m.Node, m.Property},
+		})
+		return
+	}
+	if !m.Optional {
 		m.Optional = true
 		ast.Patch(n, &ast.ChainNode{Node: m})
 	}
