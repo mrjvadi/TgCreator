@@ -13,7 +13,7 @@
   --c-redis: #ef4444;
   --c-db: #6366f1;
   --c-http: #64748b;
-  --c-xui: #d946ef;
+  --c-vpn: #d946ef;
 
   --r-sm: 7px;
   --r: 10px;
@@ -2637,7 +2637,7 @@ button.issue-line:hover {
 }
 
 /* =========================================================
-   X-UI panels (settings)
+   VPN panels (settings)
    ========================================================= */
 
 .spin {
@@ -2670,7 +2670,7 @@ button.issue-line:hover {
   text-decoration: underline;
 }
 
-.xui-check {
+.vpn-check {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -2678,19 +2678,19 @@ button.issue-line:hover {
   margin-bottom: 12px;
 }
 
-.xui-check .btn {
+.vpn-check .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.xui-ok {
+.vpn-ok {
   color: var(--good);
   font-size: 12.5px;
   font-weight: 600;
 }
 
-.xui-err {
+.vpn-err {
   display: inline-flex;
   align-items: flex-start;
   gap: 6px;
@@ -2699,12 +2699,12 @@ button.issue-line:hover {
   overflow-wrap: anywhere;
 }
 
-.xui-err svg {
+.vpn-err svg {
   flex: none;
   margin-top: 2px;
 }
 
-.xui-inbounds {
+.vpn-inbounds {
   width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
@@ -2714,28 +2714,35 @@ button.issue-line:hover {
   overflow: hidden;
 }
 
-.xui-inbounds th,
-.xui-inbounds td {
+.vpn-inbounds th,
+.vpn-inbounds td {
   text-align: start;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
 }
 
-.xui-inbounds th {
+.vpn-inbounds th {
   color: var(--muted);
   font-weight: 600;
   background: var(--surface-3);
 }
 
-.xui-inbounds tr.off td {
+.vpn-inbounds tr.off td {
   color: var(--faint);
 }
 
-.xui-inbounds .mono {
+.vpn-inbounds .mono {
   font-family: var(--mono);
 }
 
-.xui-sub {
+.vpn-sub {
   margin: 0 0 12px;
   overflow-wrap: anywhere;
+}
+
+.vpn-type {
+  width: auto;
+  margin-inline-start: auto;
+  padding-block: 4px;
+  font-size: 12.5px;
 }

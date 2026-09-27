@@ -18,7 +18,7 @@ func TestOnlyRequiredServices(t *testing.T) {
 			t.Errorf("unexpected %q in:\n%s", s, yml)
 		}
 	}
-	if !strings.Contains(yml, `TAGS: "no_redis no_xui no_postgres no_mysql"`) {
+	if !strings.Contains(yml, `TAGS: "no_redis no_vpn no_postgres no_mysql"`) {
 		t.Errorf("expected minimal build tags:\n%s", yml)
 	}
 }
@@ -58,11 +58,11 @@ func TestMissingDatabaseConfig(t *testing.T) {
 	}
 }
 
-func TestXUIPanelIsExternal(t *testing.T) {
-	wf := &workflow.Workflow{Name: "x", Services: workflow.Services{XUI: map[string]workflow.XUIPanel{
+func TestVPNPanelIsExternal(t *testing.T) {
+	wf := &workflow.Workflow{Name: "x", Services: workflow.Services{VPN: map[string]workflow.VPNPanel{
 		"main": {URL: "${XUI_URL:-https://p.example.com/x/}", Username: "admin", Password: "${XUI_PASSWORD}"},
 	}}}
-	yml, err := Generate(wf, []string{"xui:main"}, Options{BuildContext: "."})
+	yml, err := Generate(wf, []string{"vpn:main"}, Options{BuildContext: "."})
 	if err != nil {
 		t.Fatal(err)
 	}

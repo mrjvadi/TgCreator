@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/mrjvadi/tgcreator/internal/workflow"
@@ -122,15 +123,19 @@ func Check(wf *workflow.Workflow) []Issue {
 			} else if db.Driver != "postgres" && db.Driver != "mysql" && db.Driver != "sqlite" {
 				add("error", "", "درایور دیتابیس %q نامعتبر است: %q", name, db.Driver)
 			}
-		case "xui":
-			p, ok := wf.Services.XUI[name]
+		case "vpn":
+			p, ok := wf.Services.VPN[name]
 			switch {
 			case !ok:
-				add("error", "", "پنل X-UI %q استفاده شده ولی در تنظیمات سرویس‌ها تعریف نشده", name)
+				add("error", "", "پنل VPN %q استفاده شده ولی در تنظیمات سرویس‌ها تعریف نشده", name)
 			case p.URL == "":
-				add("error", "", "آدرس پنل X-UI %q خالی است", name)
-			case p.Username == "" || p.Password == "":
-				add("warning", "", "نام کاربری یا رمز پنل X-UI %q خالی است (یا %s_PASSWORD)", name, workflow.XUIEnv(name))
+				add("error", "", "آدرس پنل VPN %q خالی است", name)
+			case p.Type == "remnawave" && p.Token == "" && p.Username == "":
+				add("warning", "", "برای پنل رمناویو %q توکن API لازم است (یا %s_TOKEN)", name, workflow.VPNEnv(name))
+			case p.Type == "hiddify" && p.Token == "" && !hasAdminUUID(p.URL):
+				add("warning", "", "برای پنل هیدیفای %q کلید API (UUID ادمین) لازم است یا لینک کامل پنل ادمین را بدهید", name)
+			case p.Type != "remnawave" && p.Type != "hiddify" && (p.Username == "" || p.Password == ""):
+				add("warning", "", "نام کاربری یا رمز پنل VPN %q خالی است (یا %s_PASSWORD)", name, workflow.VPNEnv(name))
 			}
 		}
 		if serviceProvider(kind) == nil {
@@ -145,6 +150,16 @@ func Check(wf *workflow.Workflow) []Issue {
 		}
 	}
 	return out
+}
+
+// hasAdminUUID reports a Hiddify admin link (https://domain/PATH/<uuid>/...).
+func hasAdminUUID(link string) bool {
+	u, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return len(parts) > 1 && len(parts[1]) == 36 && strings.Count(parts[1], "-") == 4
 }
 
 func isEmpty(v any) bool {

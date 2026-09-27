@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -118,133 +117,6 @@ func Extend(expiry int64, days float64, now time.Time) int64 {
 	return expiry + ms
 }
 
-// Info flattens a client into the values bot messages need.
-func Info(f *Found, subBase, address string, now time.Time) map[string]any {
-	c, in, t := f.Client, f.Inbound, f.Traffic
-	total := int64Of(c["totalGB"])
-	if t.Total != 0 {
-		total = t.Total
-	}
-	expiry := int64Of(c["expiryTime"])
-	if t.ExpiryTime != 0 {
-		expiry = t.ExpiryTime
-	}
-	used := t.Up + t.Down
-	enable, _ := c["enable"].(bool)
-	subID := str(c["subId"])
-	links := Links(in, c, address)
-	link := ""
-	if len(links) > 0 {
-		link = links[0]
-	}
-	out := map[string]any{
-		"email":        str(c["email"]),
-		"inbound_id":   float64(in.ID),
-		"inbound":      in.Remark,
-		"protocol":     in.Protocol,
-		"id":           str(c[ClientKey(in.Protocol)]),
-		"enable":       enable,
-		"limit_ip":     float64(int64Of(c["limitIp"])),
-		"tg_id":        str(c["tgId"]),
-		"comment":      str(c["comment"]),
-		"flow":         str(c["flow"]),
-		"sub_id":       subID,
-		"sub_link":     SubLink(subBase, subID),
-		"link":         link,
-		"links":        toAny(links),
-		"up":           float64(t.Up),
-		"down":         float64(t.Down),
-		"used_bytes":   float64(used),
-		"used_gb":      round2(float64(used) / float64(GB)),
-		"total_bytes":  float64(total),
-		"total_gb":     round2(float64(total) / float64(GB)),
-		"unlimited":    total == 0,
-		"expiry_time":  float64(expiry),
-		"never_expire": expiry == 0,
-		"last_online":  float64(t.LastOnline),
-	}
-	if total > 0 {
-		rem := max(total-used, 0)
-		out["remaining_bytes"] = float64(rem)
-		out["remaining_gb"] = round2(float64(rem) / float64(GB))
-		out["depleted"] = used >= total
-	} else {
-		out["remaining_bytes"], out["remaining_gb"], out["depleted"] = float64(-1), float64(-1), false
-	}
-	switch {
-	case expiry > 0:
-		at := time.UnixMilli(expiry).In(tehran)
-		left := float64(expiry-now.UnixMilli()) / float64(DayMs)
-		out["days_left"] = math.Max(0, math.Floor(left*10)/10)
-		out["expired"] = left <= 0
-		out["started"] = true
-		out["expiry_date"] = at.Format("2006-01-02 15:04")
-		out["expiry_jalali"] = Jalali(at)
-	case expiry < 0:
-		out["days_left"] = math.Floor(float64(-expiry)/float64(DayMs)*10) / 10
-		out["expired"] = false
-		out["started"] = false
-		out["expiry_date"], out["expiry_jalali"] = "", ""
-	default:
-		out["days_left"] = float64(-1)
-		out["expired"] = false
-		out["started"] = true
-		out["expiry_date"], out["expiry_jalali"] = "", ""
-	}
-	out["active"] = enable && !out["expired"].(bool) && !out["depleted"].(bool)
-	return out
-}
-
-// InboundInfo summarizes an inbound for list outputs.
-func InboundInfo(in *Inbound) map[string]any {
-	clients, _ := in.Clients()
-	return map[string]any{
-		"id":       float64(in.ID),
-		"remark":   in.Remark,
-		"protocol": in.Protocol,
-		"port":     float64(in.Port),
-		"enable":   in.Enable,
-		"clients":  float64(len(clients)),
-		"up":       float64(in.Up),
-		"down":     float64(in.Down),
-		"used_gb":  round2(float64(in.Up+in.Down) / float64(GB)),
-	}
-}
-
-var tehran = time.FixedZone("IRST", 3*3600+1800)
-
-// Jalali formats t as a Solar Hijri date, YYYY/MM/DD.
-func Jalali(t time.Time) string {
-	gy, gm, gd := t.Date()
-	jy, jm, jd := toJalali(gy, int(gm), gd)
-	return fmt.Sprintf("%04d/%02d/%02d", jy, jm, jd)
-}
-
-// toJalali is the standard arithmetic Gregorian → Solar Hijri conversion.
-func toJalali(gy, gm, gd int) (int, int, int) {
-	gdm := [...]int{0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334}
-	gy2 := gy
-	if gm > 2 {
-		gy2 = gy + 1
-	}
-	days := 355666 + 365*gy + (gy2+3)/4 - (gy2+99)/100 + (gy2+399)/400 + gd + gdm[gm-1]
-	jy := -1595 + 33*(days/12053)
-	days %= 12053
-	jy += 4 * (days / 1461)
-	days %= 1461
-	if days > 365 {
-		jy += (days - 1) / 365
-		days = (days - 1) % 365
-	}
-	var jm, jd int
-	if days < 186 {
-		jm, jd = 1+days/31, 1+days%31
-	} else {
-		jm, jd = 7+(days-186)/30, 1+(days-186)%30
-	}
-	return jy, jm, jd
-}
-
 // UUID returns a random version 4 UUID.
 func UUID() string {
 	var b [16]byte
@@ -277,32 +149,4 @@ func ShadowsocksPassword(method string) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return base64.StdEncoding.EncodeToString(b)
-}
-
-func int64Of(v any) int64 {
-	switch t := v.(type) {
-	case float64:
-		return int64(t)
-	case int64:
-		return t
-	case int:
-		return int64(t)
-	case json.Number:
-		n, _ := t.Int64()
-		return n
-	case string:
-		n, _ := strconv.ParseInt(t, 10, 64)
-		return n
-	}
-	return 0
-}
-
-func round2(f float64) float64 { return math.Round(f*100) / 100 }
-
-func toAny(s []string) []any {
-	out := make([]any, len(s))
-	for i, v := range s {
-		out[i] = v
-	}
-	return out
 }

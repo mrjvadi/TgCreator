@@ -1,4 +1,4 @@
-import type { XUIInbound, XUIPanel } from "./types";
+import type { VPNGroup, VPNPanel } from "./types";
 import type { BotMethod, Catalog, ChatSnapshot, SimEvent, TestSession, ValidateResult, Workflow } from "./types";
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -45,7 +45,7 @@ export const api = {
     if (!res.ok) throw new Error(JSON.parse(text).error ?? text);
     return text;
   },
-  xuiCheck: (p: XUIPanel) => request<{ ok: boolean; error?: string; inbounds?: XUIInbound[]; sub_url?: string }>("POST", "/api/xui/check", p),
+  vpnCheck: (p: VPNPanel) => request<{ ok: boolean; error?: string; groups?: VPNGroup[] }>("POST", "/api/vpn/check", p),
   realtime: () => request<{ enabled: boolean; ws_url?: string; token?: string }>("GET", "/api/realtime"),
   testStart: (wf: Workflow) => request<TestSession>("POST", "/api/test", wf),
   testAction: (id: string, action: Record<string, unknown>) => request<{ ok: boolean; chat: ChatSnapshot }>("POST", `/api/test/${id}/action`, action),

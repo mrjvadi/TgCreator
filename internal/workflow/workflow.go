@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -56,30 +57,35 @@ type Runtime struct {
 type Services struct {
 	Redis     *Redis              `json:"redis,omitempty"`
 	Databases map[string]Database `json:"databases,omitempty"`
-	// XUI are external X-UI panels (3x-ui, alireza0 x-ui) the bot manages.
-	XUI map[string]XUIPanel `json:"xui,omitempty"`
+	// VPN are external VPN panels (X-UI, Marzban, ...) the bot manages.
+	VPN map[string]VPNPanel `json:"vpn,omitempty"`
 }
 
-// XUIPanel is a connection to an X-UI panel. Fields accept ${ENV}.
-type XUIPanel struct {
-	Type     string `json:"type,omitempty"` // "3x-ui" (default) or "x-ui" (alireza0)
-	URL      string `json:"url"`            // panel address including its web base path
-	Username string `json:"username"`
-	Password string `json:"password"`
-	// TOTPSecret is the panel's two-factor secret, when 2FA is on.
+// VPNPanel is a connection to a VPN panel. Fields accept ${ENV}.
+type VPNPanel struct {
+	// Type is one of VPNTypes; "3x-ui" when empty.
+	Type string `json:"type,omitempty"`
+	// URL is the panel address as opened in a browser, including its
+	// secret path (X-UI base path, Hiddify admin proxy path).
+	URL      string `json:"url"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	// Token is an API token (Remnawave) or API key (Hiddify admin UUID).
+	Token string `json:"token,omitempty"`
+	// TOTPSecret is the panel's two-factor secret, when 2FA is on (X-UI).
 	TOTPSecret string `json:"totp_secret,omitempty"`
-	// SubURL is the subscription base (".../sub/"); read from the panel when empty.
+	// SubURL is the subscription base; read from the panel when empty.
 	SubURL string `json:"sub_url,omitempty"`
-	// Address is the server host put into config links; defaults to the panel host.
+	// Address is the server host put into X-UI config links; defaults to the panel host.
 	Address string `json:"address,omitempty"`
-	// APIPath overrides the inbounds API path for panel forks.
+	// APIPath overrides the X-UI inbounds API path for panel forks.
 	APIPath  string `json:"api_path,omitempty"`
 	Insecure bool   `json:"insecure_tls,omitempty"` // accept self-signed certificates
 	Timeout  string `json:"timeout,omitempty"`      // per request, default 15s
 }
 
-// XUITypes are the supported panel flavours.
-var XUITypes = []string{"3x-ui", "x-ui"}
+// VPNTypes are the supported panels.
+var VPNTypes = []string{"3x-ui", "x-ui", "marzban", "pasarguard", "marzneshin", "remnawave", "hiddify"}
 
 type Redis struct {
 	URL   string `json:"url"`
@@ -173,22 +179,33 @@ func (wf *Workflow) resolveEnv() {
 		db.DSN = override(DSNEnv(name), ExpandEnv(db.DSN))
 		wf.Services.Databases[name] = db
 	}
-	for name, p := range wf.Services.XUI {
-		env := XUIEnv(name)
-		p.URL = override(env+"_URL", ExpandEnv(p.URL))
-		p.Username = override(env+"_USERNAME", ExpandEnv(p.Username))
-		p.Password = override(env+"_PASSWORD", ExpandEnv(p.Password))
-		p.TOTPSecret = override(env+"_TOTP", ExpandEnv(p.TOTPSecret))
-		p.SubURL = ExpandEnv(p.SubURL)
-		p.Address = ExpandEnv(p.Address)
-		wf.Services.XUI[name] = p
+	for name, p := range wf.Services.VPN {
+		wf.Services.VPN[name] = p.Resolve(name)
 	}
 }
 
-// XUIEnv is the prefix of the variables that override an X-UI panel's
-// settings: TGC_XUI_<NAME>_URL, _USERNAME, _PASSWORD and _TOTP.
-func XUIEnv(name string) string {
-	return "TGC_XUI_" + envName(name)
+// VPNEnv is the prefix of the variables that override a VPN panel's
+// settings: TGC_VPN_<NAME>_URL, _USERNAME, _PASSWORD, _TOKEN and _TOTP.
+func VPNEnv(name string) string {
+	return "TGC_VPN_" + envName(name)
+}
+
+// Resolve expands ${ENV} references and applies TGC_VPN_<NAME>_* overrides.
+func (p VPNPanel) Resolve(name string) VPNPanel {
+	env := VPNEnv(name)
+	p.URL = override(env+"_URL", ExpandEnv(p.URL))
+	p.Username = override(env+"_USERNAME", ExpandEnv(p.Username))
+	p.Password = override(env+"_PASSWORD", ExpandEnv(p.Password))
+	p.Token = override(env+"_TOKEN", ExpandEnv(p.Token))
+	p.TOTPSecret = override(env+"_TOTP", ExpandEnv(p.TOTPSecret))
+	p.SubURL = ExpandEnv(p.SubURL)
+	p.Address = ExpandEnv(p.Address)
+	return p
+}
+
+// Secrets are the fields that may reference environment variables.
+func (p VPNPanel) Secrets() []string {
+	return []string{p.URL, p.Username, p.Password, p.Token, p.TOTPSecret, p.SubURL, p.Address}
 }
 
 // DSNEnv is the environment variable that overrides a database's DSN.
@@ -254,11 +271,9 @@ func (wf *Workflow) Validate() error {
 			return fmt.Errorf("database %q: unsupported driver %q (postgres, mysql, sqlite)", name, db.Driver)
 		}
 	}
-	for name, p := range wf.Services.XUI {
-		switch p.Type {
-		case "", "3x-ui", "x-ui":
-		default:
-			return fmt.Errorf("xui panel %q: unsupported type %q (3x-ui, x-ui)", name, p.Type)
+	for name, p := range wf.Services.VPN {
+		if p.Type != "" && !slices.Contains(VPNTypes, p.Type) {
+			return fmt.Errorf("vpn panel %q: unsupported type %q (%s)", name, p.Type, strings.Join(VPNTypes, ", "))
 		}
 	}
 	return nil

@@ -1,15 +1,16 @@
 {
-  "name": "VPN shop (3x-ui)",
+  "name": "VPN shop (every panel)",
   "version": 1,
   "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
   "services": {
-    "xui": {
+    "vpn": {
       "main": {
         "type": "3x-ui",
-        "url": "${XUI_URL:-https://panel.example.com:2053/secret/}",
-        "username": "${XUI_USERNAME:-admin}",
-        "password": "${XUI_PASSWORD}",
-        "address": "${XUI_ADDRESS:-}"
+        "url": "${VPN_URL:-https://panel.example.com:2053/secret/}",
+        "username": "${VPN_USERNAME:-admin}",
+        "password": "${VPN_PASSWORD}",
+        "token": "${VPN_TOKEN:-}",
+        "address": "${VPN_ADDRESS:-}"
       }
     }
   },
@@ -37,17 +38,17 @@
     },
 
     {
-      "id": "trial", "type": "xui.add_client", "name": "ساخت اکانت تست", "position": [820, -60],
+      "id": "trial", "type": "vpn.create_user", "name": "ساخت اکانت تست", "position": [820, -60],
       "params": {
-        "inbound_id": "{{ vars.inbound }}", "email": "trial_{{ from.id }}",
+        "inbound": "{{ vars.inbound }}", "username": "trial_{{ from.id }}",
         "traffic_gb": "{{ vars.trial_gb }}", "days": "{{ vars.trial_days }}",
-        "tg_id": "{{ from.id }}", "comment": "trial {{ from.first_name }}"
+        "tg_id": "{{ from.id }}", "note": "trial {{ from.first_name }}"
       }
     },
     {
       "id": "trial_ok", "type": "telegram.send_message", "name": "تحویل اکانت تست", "position": [1260, -230],
       "params": {
-        "text": "✅ <b>اکانت تست شما آماده است</b>\n\n📦 حجم: {{ nodes.trial.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.trial.expiry_jalali }}\n\n🔗 لینک اشتراک (v2rayNG، Streisand، Hiddify):\n<code>{{ nodes.trial.sub_link }}</code>\n\n⚡️ کانفیگ مستقیم:\n<code>{{ nodes.trial.link }}</code>"
+        "text": "✅ <b>اکانت تست شما آماده است</b>\n\n📦 حجم: {{ nodes.trial.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.trial.expiry_jalali }}\n\n🔗 لینک اشتراک (v2rayNG، Streisand، Hiddify):\n<code>{{ nodes.trial.sub_link }}</code>{{ nodes.trial.link != '' ? '\\n\\n⚡️ کانفیگ مستقیم:\\n<code>' + nodes.trial.link + '</code>' : '' }}"
       }
     },
     {
@@ -82,18 +83,18 @@
       "params": { "has": ["successful_payment"], "condition": "message.successful_payment.invoice_payload startsWith 'vpn30:'" }
     },
     {
-      "id": "renew", "type": "xui.update_client", "name": "تمدید اشتراک", "position": [380, 560],
-      "params": { "email": "vpn_{{ from.id }}", "add_days": "{{ vars.plan_days }}", "set_gb": "{{ vars.plan_gb }}", "reset_traffic": true }
+      "id": "renew", "type": "vpn.update_user", "name": "تمدید اشتراک", "position": [380, 560],
+      "params": { "username": "vpn_{{ from.id }}", "add_days": "{{ vars.plan_days }}", "set_gb": "{{ vars.plan_gb }}", "reset_traffic": true }
     },
     {
       "id": "renew_ok", "type": "telegram.send_message", "name": "تمدید شد", "position": [820, 460],
       "params": { "text": "✅ <b>اشتراک شما تمدید شد</b>\n\n📦 حجم: {{ nodes.renew.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.renew.expiry_jalali }}\n\n🔗 <code>{{ nodes.renew.sub_link }}</code>" }
     },
     {
-      "id": "create", "type": "xui.add_client", "name": "ساخت اشتراک", "position": [820, 640],
+      "id": "create", "type": "vpn.create_user", "name": "ساخت اشتراک", "position": [820, 640],
       "params": {
-        "inbound_id": "{{ vars.inbound }}", "email": "vpn_{{ from.id }}", "traffic_gb": "{{ vars.plan_gb }}", "days": "{{ vars.plan_days }}",
-        "limit_ip": 2, "flow": "xtls-rprx-vision", "tg_id": "{{ from.id }}", "comment": "{{ from.first_name }}"
+        "inbound": "{{ vars.inbound }}", "username": "vpn_{{ from.id }}", "traffic_gb": "{{ vars.plan_gb }}", "days": "{{ vars.plan_days }}",
+        "limit_ip": 2, "flow": "xtls-rprx-vision", "tg_id": "{{ from.id }}", "note": "{{ from.first_name }}"
       }
     },
     {
@@ -101,11 +102,11 @@
       "params": { "text": "✅ <b>اشتراک شما فعال شد</b>\n\n📦 حجم: {{ nodes.create.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.create.expiry_jalali }}\n👥 حداکثر {{ nodes.create.limit_ip }} دستگاه\n\n🔗 لینک اشتراک:\n<code>{{ nodes.create.sub_link }}</code>" }
     },
 
-    { "id": "mine", "type": "xui.find_clients", "name": "اکانت‌های کاربر", "position": [820, -420], "params": { "tg_id": "{{ from.id }}" } },
+    { "id": "mine", "type": "vpn.find_users", "name": "اکانت‌های کاربر", "position": [820, -420], "params": { "tg_id": "{{ from.id }}" } },
     {
       "id": "mine_list", "type": "telegram.send_message", "name": "نمایش اکانت‌ها", "position": [1260, -560],
       "params": {
-        "text": "📊 <b>اکانت‌های شما</b>\n\n{{ join(map(nodes.mine.clients, '👤 <code>' + #.email + '</code> ' + (#.active ? '🟢 فعال' : '🔴 غیرفعال') + '\\n📦 مصرف: ' + string(#.used_gb) + ' از ' + (#.unlimited ? 'نامحدود' : string(#.total_gb) + ' گیگ') + '\\n⏳ ' + (#.expiry_jalali != '' ? 'اعتبار تا ' + #.expiry_jalali : (#.started ? 'بدون انقضا' : 'از اولین اتصال')) + '\\n🔗 <code>' + #.sub_link + '</code>'), '\\n\\n') }}"
+        "text": "📊 <b>اکانت‌های شما</b>\n\n{{ join(map(nodes.mine.users, '👤 <code>' + #.username + '</code> ' + (#.active ? '🟢 فعال' : '🔴 غیرفعال') + '\\n📦 مصرف: ' + string(#.used_gb) + ' از ' + (#.unlimited ? 'نامحدود' : string(#.total_gb) + ' گیگ') + '\\n⏳ ' + (#.expiry_jalali != '' ? 'اعتبار تا ' + #.expiry_jalali : (#.started ? 'بدون انقضا' : 'از اولین اتصال')) + '\\n🔗 <code>' + #.sub_link + '</code>'), '\\n\\n') }}"
       }
     },
     {
@@ -115,19 +116,19 @@
 
     { "id": "renew_cmd", "type": "trigger.command", "name": "/renew (مدیر)", "position": [0, 1140], "params": { "commands": ["renew"], "chat_types": ["private"], "condition": "from.id == vars.owner_id && len(args) >= 2" } },
     {
-      "id": "admin_renew", "type": "xui.update_client", "name": "تمدید دستی", "position": [380, 1140],
-      "params": { "email": "{{ args[0] }}", "add_days": "{{ args[1] }}", "add_gb": "{{ args[2] ?? 0 }}" }
+      "id": "admin_renew", "type": "vpn.update_user", "name": "تمدید دستی", "position": [380, 1140],
+      "params": { "username": "{{ args[0] }}", "add_days": "{{ args[1] }}", "add_gb": "{{ args[2] ?? 0 }}" }
     },
-    { "id": "admin_ok", "type": "telegram.send_message", "position": [820, 1100], "params": { "text": "✅ <code>{{ nodes.admin_renew.email }}</code> تمدید شد؛ اعتبار تا {{ nodes.admin_renew.expiry_jalali }} — حجم {{ nodes.admin_renew.unlimited ? 'نامحدود' : string(nodes.admin_renew.total_gb) + ' گیگ' }}" } },
+    { "id": "admin_ok", "type": "telegram.send_message", "position": [820, 1100], "params": { "text": "✅ <code>{{ nodes.admin_renew.username }}</code> تمدید شد؛ اعتبار تا {{ nodes.admin_renew.expiry_jalali }} — حجم {{ nodes.admin_renew.unlimited ? 'نامحدود' : string(nodes.admin_renew.total_gb) + ' گیگ' }}" } },
     { "id": "admin_nf", "type": "telegram.send_message", "position": [820, 1240], "params": { "text": "❓ کاربر <code>{{ args[0] }}</code> در پنل نیست." } },
 
     { "id": "del_cmd", "type": "trigger.command", "name": "/del (مدیر)", "position": [0, 1380], "params": { "commands": ["del"], "chat_types": ["private"], "condition": "from.id == vars.owner_id && len(args) == 1" } },
-    { "id": "admin_del", "type": "xui.delete_client", "name": "حذف کاربر", "position": [380, 1380], "params": { "email": "{{ args[0] }}" } },
+    { "id": "admin_del", "type": "vpn.delete_user", "name": "حذف کاربر", "position": [380, 1380], "params": { "username": "{{ args[0] }}" } },
     { "id": "admin_del_ok", "type": "telegram.send_message", "position": [820, 1380], "params": { "text": "🗑 <code>{{ args[0] }}</code> حذف شد." } },
 
     { "id": "online_cmd", "type": "trigger.command", "name": "/online (مدیر)", "position": [0, 1580], "params": { "commands": ["online"], "chat_types": ["private"], "condition": "from.id == vars.owner_id" } },
-    { "id": "onlines", "type": "xui.onlines", "position": [380, 1580] },
-    { "id": "online_msg", "type": "telegram.send_message", "position": [820, 1580], "params": { "text": "🟢 {{ nodes.onlines.count }} کاربر آنلاین{{ nodes.onlines.count > 0 ? ':\\n' + join(nodes.onlines.emails, '\\n') : '' }}" } }
+    { "id": "onlines", "type": "vpn.onlines", "position": [380, 1580] },
+    { "id": "online_msg", "type": "telegram.send_message", "position": [820, 1580], "params": { "text": "🟢 {{ nodes.onlines.count }} کاربر آنلاین{{ nodes.onlines.count > 0 ? ':\\n' + join(nodes.onlines.users, '\\n') : '' }}" } }
   ],
   "connections": {
     "start": { "main": ["menu"] },

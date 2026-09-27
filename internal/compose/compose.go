@@ -37,8 +37,8 @@ func Generate(wf *workflow.Workflow, requires []string, opt Options) (string, er
 			needRedis = true
 		case strings.HasPrefix(r, "db:"):
 			dbs = append(dbs, strings.TrimPrefix(r, "db:"))
-		case strings.HasPrefix(r, "xui:"):
-			panels = append(panels, strings.TrimPrefix(r, "xui:"))
+		case strings.HasPrefix(r, "vpn:"):
+			panels = append(panels, strings.TrimPrefix(r, "vpn:"))
 		}
 	}
 	sort.Strings(dbs)
@@ -133,14 +133,14 @@ func Generate(wf *workflow.Workflow, requires []string, opt Options) (string, er
 		}
 	}
 
-	// X-UI panels are external: no container. The ${VAR}s their settings
+	// VPN panels are external: no container. The ${VAR}s their settings
 	// reference are passed through from .env (empty keeps any default).
 	for _, name := range panels {
-		p, ok := wf.Services.XUI[name]
+		p, ok := wf.Services.VPN[name]
 		if !ok {
-			return "", fmt.Errorf("workflow uses X-UI panel %q but services.xui.%s is missing", name, name)
+			return "", fmt.Errorf("workflow uses VPN panel %q but services.vpn.%s is missing", name, name)
 		}
-		for _, v := range []string{p.URL, p.Username, p.Password, p.TOTPSecret, p.SubURL, p.Address} {
+		for _, v := range p.Secrets() {
 			for _, ref := range workflow.EnvRefs(v) {
 				if ref != "" && env[ref] == "" {
 					env[ref] = "${" + ref + ":-}"
@@ -199,13 +199,13 @@ func Generate(wf *workflow.Workflow, requires []string, opt Options) (string, er
 
 // BuildTags returns the Go build tags that drop unused modules from the
 // runtime binary.
-func BuildTags(redis bool, drivers map[string]bool, xui bool) string {
+func BuildTags(redis bool, drivers map[string]bool, vpn bool) string {
 	var tags []string
 	if !redis {
 		tags = append(tags, "no_redis")
 	}
-	if !xui {
-		tags = append(tags, "no_xui")
+	if !vpn {
+		tags = append(tags, "no_vpn")
 	}
 	if !drivers["postgres"] {
 		tags = append(tags, "no_postgres")

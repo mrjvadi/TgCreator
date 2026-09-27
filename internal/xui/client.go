@@ -52,7 +52,7 @@ var flavors = map[string]flavor{
 
 // Client is safe for concurrent use.
 type Client struct {
-	cfg  workflow.XUIPanel
+	cfg  workflow.VPNPanel
 	base string // panel URL without trailing slash
 	fl   flavor
 	hc   *http.Client
@@ -68,7 +68,7 @@ type Client struct {
 }
 
 // New validates the configuration; it does not contact the panel.
-func New(cfg workflow.XUIPanel) (*Client, error) {
+func New(cfg workflow.VPNPanel) (*Client, error) {
 	if cfg.Type == "" {
 		cfg.Type = "3x-ui"
 	}

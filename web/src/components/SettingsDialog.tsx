@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WorkflowRest } from "../convert";
 import type { Database as Db, Json } from "../types";
 import { Switch } from "./Inspector";
-import XUIPanels from "./XUIPanels";
+import VPNPanels from "./VPNPanels";
 
 type Tab = "bot" | "runtime" | "services" | "vars";
 
@@ -227,7 +227,7 @@ export default function SettingsDialog({ value, onChange, onClose }: { value: Wo
                 >
                   <Plus size={14} /> افزودن دیتابیس
                 </button>
-                <XUIPanels value={svc.xui ?? {}} onChange={(x) => onChange({ ...wf, services: { ...svc, xui: Object.keys(x).length ? x : undefined } })} />
+                <VPNPanels value={svc.vpn ?? {}} onChange={(x) => onChange({ ...wf, services: { ...svc, vpn: Object.keys(x).length ? x : undefined } })} />
               </>
             )}
             {tab === "vars" && (

@@ -19,8 +19,8 @@ import (
 	"github.com/mrjvadi/tgcreator/internal/engine"
 	"github.com/mrjvadi/tgcreator/internal/tg"
 	"github.com/mrjvadi/tgcreator/internal/tgsim"
+	"github.com/mrjvadi/tgcreator/internal/vpn/vpnfake"
 	"github.com/mrjvadi/tgcreator/internal/workflow"
-	"github.com/mrjvadi/tgcreator/internal/xui/xuifake"
 )
 
 // Test world: who and where the panel user can chat as.
@@ -38,7 +38,7 @@ type session struct {
 	sim     *tgsim.Sim
 	eng     *engine.Engine
 	mini    *miniredis.Miniredis
-	panels  []*xuifake.Panel
+	panels  []*vpnfake.Panel
 	cancel  context.CancelFunc
 	done    chan struct{}
 	last    atomic.Int64
@@ -84,31 +84,32 @@ func (s *Server) startSession(wf *workflow.Workflow) (*session, error) {
 			}
 			db.DSN = workflow.ExpandEnv(db.DSN)
 			wf.Services.Databases[name] = db
-		case "xui":
+		case "vpn":
 			// Tests never create users on a real panel: an in-memory panel
-			// stands in unless TGC_TEST_XUI_<NAME>_URL names a test panel.
-			p := wf.Services.XUI[name]
-			env := "TGC_TEST_" + strings.TrimPrefix(workflow.XUIEnv(name), "TGC_")
+			// of the same type stands in unless TGC_TEST_VPN_<NAME>_URL
+			// names a test panel.
+			p := wf.Services.VPN[name]
+			env := "TGC_TEST_" + strings.TrimPrefix(workflow.VPNEnv(name), "TGC_")
 			if u := os.Getenv(env + "_URL"); u != "" {
 				p.URL, p.Username, p.Password = u, os.Getenv(env+"_USERNAME"), os.Getenv(env+"_PASSWORD")
-				p.TOTPSecret = os.Getenv(env + "_TOTP")
+				p.Token, p.TOTPSecret = os.Getenv(env+"_TOKEN"), os.Getenv(env+"_TOTP")
 			} else {
-				fake := xuifake.New(p.Type)
+				fake := vpnfake.New(p.Type)
 				sess.panels = append(sess.panels, fake)
-				p.Address = workflow.ExpandEnv(p.Address)
-				if p.Address == "" {
-					p.Address = "vpn.example.com"
+				addr := workflow.ExpandEnv(p.Address)
+				if addr == "" {
+					addr = "vpn.example.com"
 					if u, err := url.Parse(workflow.ExpandEnv(p.URL)); err == nil && u.Hostname() != "" {
-						p.Address = u.Hostname()
+						addr = u.Hostname()
 					}
 				}
-				p.Type, p.URL, p.Username, p.Password = fake.Type, fake.URL, fake.Username, fake.Password
-				p.TOTPSecret, p.APIPath, p.SubURL, p.Insecure = "", "", "", false
+				p = fake.Config()
+				p.Address = addr
 			}
-			if wf.Services.XUI == nil {
-				wf.Services.XUI = map[string]workflow.XUIPanel{}
+			if wf.Services.VPN == nil {
+				wf.Services.VPN = map[string]workflow.VPNPanel{}
 			}
-			wf.Services.XUI[name] = p
+			wf.Services.VPN[name] = p
 		}
 	}
 	if wf.Runtime.StateBackend == "redis" && sess.mini == nil {
@@ -128,7 +129,7 @@ func (s *Server) startSession(wf *workflow.Workflow) (*session, error) {
 	sim.SetMember(ChatChanel, sim.BotID(), "administrator", tgsim.AdminRights...)
 
 	if len(sess.panels) > 0 {
-		sim.Log(0, "پنل X-UI در این تست شبیه‌سازی شده است (اینباند ۱: VLESS Reality، اینباند ۲: VMess WS)؛ هیچ کاربری روی پنل واقعی ساخته نمی‌شود.")
+		sim.Log(0, "پنل VPN در این تست شبیه‌سازی شده است؛ هیچ کاربری روی پنل واقعی ساخته نمی‌شود.")
 	}
 
 	logger := slog.New(&simLog{sim: sim})

@@ -19,7 +19,7 @@ func connect(t *testing.T, typ string) (*xui.Client, *xuifake.Panel) {
 	t.Helper()
 	p := xuifake.New(typ)
 	t.Cleanup(p.Close)
-	c, err := xui.New(workflow.XUIPanel{Type: typ, URL: p.URL, Username: "admin", Password: "admin"})
+	c, err := xui.New(workflow.VPNPanel{Type: typ, URL: p.URL, Username: "admin", Password: "admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,14 +56,13 @@ func TestClientLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			info := xui.Info(f, c.SubBase(ctx), "vpn.example.com", now)
-			if info["used_gb"] != 1.5 || info["remaining_gb"] != 3.5 || info["days_left"] != 30.0 || info["active"] != true {
-				t.Fatalf("info: %v", info)
+			if f.Traffic.Up+f.Traffic.Down != xui.GB*3/2 || f.Client["totalGB"] != float64(5*xui.GB) {
+				t.Fatalf("found: %+v %v", f.Traffic, f.Client)
 			}
-			if info["sub_link"] != "https://sub.example.com:2096/sub/"+stored["subId"].(string) {
-				t.Fatalf("sub link %v", info["sub_link"])
+			if sub := xui.SubLink(c.SubBase(ctx), stored["subId"].(string)); sub != "https://sub.example.com:2096/sub/"+stored["subId"].(string) {
+				t.Fatalf("sub link %v", sub)
 			}
-			link := info["link"].(string)
+			link := xui.Links(f.Inbound, f.Client, "vpn.example.com")[0]
 			for _, want := range []string{"vless://" + stored["id"].(string) + "@vpn.example.com:443", "security=reality", "pbk=PUBKEY", "sid=ab12", "sni=www.speedtest.net", "flow=xtls-rprx-vision", "#Reality-tg42"} {
 				if !strings.Contains(link, want) {
 					t.Fatalf("link %s lacks %s", link, want)
@@ -84,9 +83,8 @@ func TestClientLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			f, _ = c.FindClient(ctx, "tg42")
-			info = xui.Info(f, "", "vpn.example.com", now)
-			if info["total_gb"] != 10.0 || info["used_gb"] != 0.0 || info["days_left"] != 40.0 {
-				t.Fatalf("after renew: %v", info)
+			if f.Traffic.Total != 10*xui.GB || f.Traffic.Up+f.Traffic.Down != 0 || (f.Traffic.ExpiryTime-now.UnixMilli())/xui.DayMs != 40 {
+				t.Fatalf("after renew: %+v", f.Traffic)
 			}
 
 			// A restarted panel forgets the session: the client logs in again.
@@ -128,7 +126,7 @@ func TestConcurrentLoginOnce(t *testing.T) {
 func TestWrongPassword(t *testing.T) {
 	p := xuifake.New("3x-ui")
 	defer p.Close()
-	c, _ := xui.New(workflow.XUIPanel{URL: p.URL, Username: "admin", Password: "nope"})
+	c, _ := xui.New(workflow.VPNPanel{URL: p.URL, Username: "admin", Password: "nope"})
 	_, err := c.Inbounds(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "Wrong username") {
 		t.Fatalf("err = %v", err)
@@ -172,14 +170,7 @@ func TestExpiry(t *testing.T) {
 	}
 }
 
-func TestJalaliAndTOTP(t *testing.T) {
-	cases := map[string]string{"2024-03-20": "1403/01/01", "2026-09-27": "1405/07/05", "2000-01-01": "1378/10/11"}
-	for g, j := range cases {
-		d, _ := time.Parse("2006-01-02", g)
-		if got := xui.Jalali(d); got != j {
-			t.Errorf("Jalali(%s) = %s, want %s", g, got, j)
-		}
-	}
+func TestTOTP(t *testing.T) {
 	// RFC 6238 test vector (SHA1, T=59): 94287082 → last 6 digits.
 	code, err := xui.TOTP("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", time.Unix(59, 0))
 	if err != nil || code != "287082" {

@@ -13,11 +13,12 @@ export interface WorkflowNode {
   position?: [number, number];
 }
 
-export interface XUIPanel {
+export interface VPNPanel {
   type?: string;
   url: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
+  token?: string;
   totp_secret?: string;
   sub_url?: string;
   address?: string;
@@ -26,14 +27,13 @@ export interface XUIPanel {
   timeout?: string;
 }
 
-export interface XUIInbound {
-  id: number;
-  remark: string;
-  protocol: string;
-  port: number;
-  enable: boolean;
-  clients: number;
-  used_gb: number;
+export interface VPNGroup {
+  id: string;
+  name: string;
+  protocol?: string;
+  port?: number;
+  users: number;
+  enabled: boolean;
 }
 
 export interface Database {
@@ -66,7 +66,7 @@ export interface Workflow {
     health_listen?: string;
     handle_timeout?: string;
   };
-  services?: { redis?: { url: string; image?: string }; databases?: Record<string, Database>; xui?: Record<string, XUIPanel> };
+  services?: { redis?: { url: string; image?: string }; databases?: Record<string, Database>; vpn?: Record<string, VPNPanel> };
   variables?: Record<string, Json>;
   nodes: WorkflowNode[];
   connections: Record<string, Record<string, string[]>>;
@@ -194,6 +194,6 @@ export const categories: Record<string, { title: string; color: string }> = {
   redis: { title: "Redis", color: "var(--c-redis)" },
   db: { title: "دیتابیس", color: "var(--c-db)" },
   http: { title: "HTTP", color: "var(--c-http)" },
-  xui: { title: "پنل X-UI (VPN)", color: "var(--c-xui)" },
+  vpn: { title: "پنل VPN", color: "var(--c-vpn)" },
   other: { title: "سایر", color: "var(--muted)" },
 };

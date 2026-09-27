@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/mrjvadi/tgcreator/internal/nodes"
 	"github.com/mrjvadi/tgcreator/internal/tgsim"
+	"github.com/mrjvadi/tgcreator/internal/vpn/vpnfake"
 )
 
 func call(t *testing.T, srv http.Handler, method, url string, body any, out any) int {
@@ -200,32 +201,71 @@ func TestPanelButtonMenu(t *testing.T) {
 	}
 }
 
-// The VPN shop runs against an in-memory X-UI panel: the real one in the
-// workflow is never contacted, and links use the configured panel's host.
-func TestPanelXUISession(t *testing.T) {
+// The VPN shop runs against an in-memory panel of the configured type:
+// the real one in the workflow is never contacted.
+func TestPanelVPNSession(t *testing.T) {
+	rec := httptest.NewRecorder()
+	New(Config{}, nil).ServeHTTP(rec, httptest.NewRequest("GET", "/api/examples/vpn-shop", nil))
+	var wf map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &wf); err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []string{"3x-ui", "marzban", "remnawave", "hiddify"} {
+		t.Run(typ, func(t *testing.T) {
+			s := New(Config{}, nil)
+			defer s.Close()
+			wf["services"].(map[string]any)["vpn"].(map[string]any)["main"].(map[string]any)["type"] = typ
+			if typ != "3x-ui" {
+				wf["variables"].(map[string]any)["inbound"] = ""
+			}
+			body, _ := json.Marshal(wf)
+			var sess struct{ ID, Error string }
+			if code := call(t, s, "POST", "/api/test", body, &sess); code != 200 {
+				t.Fatalf("start: %d %s", code, sess.Error)
+			}
+			defer call(t, s, "DELETE", "/api/test/"+sess.ID, nil, nil)
+			act := func(a map[string]any) tgsim.MsgView {
+				var res struct{ Chat tgsim.ChatSnapshot }
+				a["chat_id"] = UserMe
+				if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", a, &res); code != 200 {
+					t.Fatalf("%v: %d", a, code)
+				}
+				return res.Chat.Messages[len(res.Chat.Messages)-1]
+			}
+			menu := act(map[string]any{"type": "send", "text": "/start"})
+			got := act(map[string]any{"type": "press", "message_id": menu.ID, "button": "🎁 اکانت تست رایگان"})
+			if !strings.Contains(got.Text, "اکانت تست شما آماده است") || !strings.Contains(got.Text, "http") {
+				t.Fatalf("trial = %q", got.Text)
+			}
+			if typ == "3x-ui" && !strings.Contains(got.Text, "@panel.example.com:443") {
+				t.Fatalf("config link should use the configured panel host: %q", got.Text)
+			}
+			if got = act(map[string]any{"type": "press", "message_id": menu.ID, "button": "📊 اکانت‌های من"}); !strings.Contains(got.Text, "trial_1001") {
+				t.Fatalf("accounts = %q", got.Text)
+			}
+		})
+	}
+}
+
+// The settings dialog's connection test reports success and failure.
+func TestPanelVPNCheck(t *testing.T) {
 	s := New(Config{}, nil)
 	defer s.Close()
-	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/examples/vpn-shop", nil))
-	var sess struct{ ID, Error string }
-	if code := call(t, s, "POST", "/api/test", rec.Body.Bytes(), &sess); code != 200 {
-		t.Fatalf("start: %d %s", code, sess.Error)
+	fake := vpnfake.New("pasarguard")
+	defer fake.Close()
+	var res struct {
+		OK     bool
+		Error  string
+		Groups []struct{ ID, Name string }
 	}
-	defer call(t, s, "DELETE", "/api/test/"+sess.ID, nil, nil)
-	act := func(a map[string]any) tgsim.MsgView {
-		var res struct{ Chat tgsim.ChatSnapshot }
-		a["chat_id"] = UserMe
-		if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", a, &res); code != 200 {
-			t.Fatalf("%v: %d", a, code)
-		}
-		return res.Chat.Messages[len(res.Chat.Messages)-1]
+	call(t, s, "POST", "/api/vpn/check", fake.Config(), &res)
+	if !res.OK || len(res.Groups) != 2 || res.Groups[0].Name != "Main" {
+		t.Fatalf("check: %+v", res)
 	}
-	menu := act(map[string]any{"type": "send", "text": "/start"})
-	got := act(map[string]any{"type": "press", "message_id": menu.ID, "button": "🎁 اکانت تست رایگان"})
-	if !strings.Contains(got.Text, "@panel.example.com:443") || !strings.Contains(got.Text, "https://sub.example.com:2096/sub/") {
-		t.Fatalf("trial = %q", got.Text)
-	}
-	if got = act(map[string]any{"type": "press", "message_id": menu.ID, "button": "📊 اکانت‌های من"}); !strings.Contains(got.Text, "trial_1001") {
-		t.Fatalf("accounts = %q", got.Text)
+	bad := fake.Config()
+	bad.Password = "wrong"
+	call(t, s, "POST", "/api/vpn/check", bad, &res)
+	if res.OK || !strings.Contains(res.Error, "wrong username or password") {
+		t.Fatalf("bad password: %+v", res)
 	}
 }
