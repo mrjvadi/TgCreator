@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -61,7 +62,7 @@ func TestPanelAPI(t *testing.T) {
 
 	var list []struct{ ID string }
 	call(t, s, "GET", "/api/examples", nil, &list)
-	if len(list) != 5 {
+	if len(list) != 6 {
 		t.Fatalf("examples: %+v", list)
 	}
 	req := httptest.NewRequest("GET", "/api/examples/menu-bot", nil)
@@ -267,5 +268,41 @@ func TestPanelVPNCheck(t *testing.T) {
 	call(t, s, "POST", "/api/vpn/check", bad, &res)
 	if res.OK || !strings.Contains(res.Error, "wrong username or password") {
 		t.Fatalf("bad password: %+v", res)
+	}
+}
+
+// The test chat can send files: the uploader example stores one for the
+// admin (the test user) and asks the second user to join the channel.
+func TestPanelUploaderSession(t *testing.T) {
+	s := New(Config{}, nil)
+	defer s.Close()
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/examples/uploader-bot", nil))
+	var sess struct{ ID, Error string }
+	if code := call(t, s, "POST", "/api/test", rec.Body.Bytes(), &sess); code != 200 {
+		t.Fatalf("start: %d %s", code, sess.Error)
+	}
+	defer call(t, s, "DELETE", "/api/test/"+sess.ID, nil, nil)
+	act := func(a map[string]any) tgsim.MsgView {
+		var res struct{ Chat tgsim.ChatSnapshot }
+		if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", a, &res); code != 200 {
+			t.Fatalf("%v: %d", a, code)
+		}
+		return res.Chat.Messages[len(res.Chat.Messages)-1]
+	}
+	got := act(map[string]any{"type": "file", "chat_id": UserMe, "kind": "document", "name": "book.pdf", "text": "کتاب"})
+	m := regexp.MustCompile(`start=([A-Za-z0-9]{8})`).FindStringSubmatch(got.Text)
+	if m == nil || !strings.Contains(got.Text, "book.pdf") {
+		t.Fatalf("upload reply: %q", got.Text)
+	}
+	if got = act(map[string]any{"type": "send", "chat_id": UserOther, "user_id": UserOther, "text": "/start " + m[1]}); !strings.Contains(got.Text, "عضو شوید") {
+		t.Fatalf("second user: %q", got.Text)
+	}
+	if got = act(map[string]any{"type": "send", "chat_id": UserMe, "text": m[1]}); got.Media != "document" || got.Caption != "کتاب" {
+		t.Fatalf("admin gets the file: %+v", got)
+	}
+	var res struct{ Error string }
+	if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", map[string]any{"type": "file", "chat_id": UserMe, "kind": "exe"}, &res); code != 400 {
+		t.Fatalf("bad kind: %d", code)
 	}
 }

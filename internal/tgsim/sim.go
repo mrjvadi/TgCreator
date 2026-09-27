@@ -243,6 +243,12 @@ func (s *Sim) sendMsg(chatID, userID int64, text string, extra map[string]any, r
 	}
 	m := s.newMsg(chat, from, false)
 	m.Text, m.Extra, m.ReplyTo = text, extra, replyTo
+	// A GIF also carries "document"; the more specific kind wins.
+	for _, k := range UserMediaKinds {
+		if _, ok := extra[k]; ok && (m.Media == "" || m.Media == "document") {
+			m.Media = k
+		}
+	}
 	if _, hasCaption := extra["caption"]; hasCaption {
 		m.Caption, m.Text = text, ""
 	}
@@ -252,6 +258,28 @@ func (s *Sim) sendMsg(chatID, userID int64, text string, extra map[string]any, r
 	s.event(chat, from.FirstName, describeUserMsg(m), "user")
 	s.push("message", s.msgObject(m))
 	return m
+}
+
+// UserMediaKinds are the files a user can send with SendFile.
+var UserMediaKinds = []string{"document", "photo", "video", "audio", "voice", "animation", "video_note", "sticker"}
+
+// SendFile is a user sending a file of kind (see UserMediaKinds) with an
+// optional caption and, for documents, a file name.
+func (s *Sim) SendFile(chat, user int64, kind, caption, name string) *Msg {
+	obj := fileObject(kind)
+	if m, ok := obj.(map[string]any); ok && name != "" {
+		m["file_name"] = name
+	}
+	extra := map[string]any{kind: obj}
+	if kind == "animation" {
+		extra["document"] = obj // Telegram sends GIFs as both
+	}
+	if caption != "" && kind != "sticker" && kind != "video_note" {
+		extra["caption"] = caption
+	} else {
+		caption = ""
+	}
+	return s.sendMsg(chat, user, caption, extra, 0)
 }
 
 // ChannelPost is a post published in a channel.

@@ -1,6 +1,9 @@
 package tmpl
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func eval(t *testing.T, v any, env Env) any {
 	t.Helper()
@@ -73,5 +76,23 @@ func TestCondition(t *testing.T) {
 		if !Truthy(v) {
 			t.Errorf("%s: want true", src)
 		}
+	}
+}
+
+// randomString is evaluated on every run, never folded into a constant.
+func TestRandomString(t *testing.T) {
+	c, err := Compile("{{ randomString(10) }}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := c.Eval(Env{})
+	b, _ := c.Eval(Env{})
+	if IsConst(c) || len(ToString(a)) != 10 || a == b {
+		t.Fatalf("got %v and %v", a, b)
+	}
+	d, _ := Compile(`{{ randomString(6, "0123456789") }}`)
+	v, _ := d.Eval(Env{})
+	if s := ToString(v); len(s) != 6 || strings.Trim(s, "0123456789") != "" {
+		t.Fatalf("digits: %q", s)
 	}
 }

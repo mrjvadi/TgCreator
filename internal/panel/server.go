@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -344,12 +345,14 @@ func (s *Server) testStart(w http.ResponseWriter, r *http.Request) {
 }
 
 type action struct {
-	Type      string `json:"type"` // send, press, join, contact, post, inline, reply
+	Type      string `json:"type"` // send, press, join, contact, file, inline
 	ChatID    int64  `json:"chat_id"`
 	UserID    int64  `json:"user_id"`
 	Text      string `json:"text"`
 	MessageID int64  `json:"message_id"`
 	Button    string `json:"button"`
+	Kind      string `json:"kind"` // file: document, photo, video...
+	Name      string `json:"name"` // file: document file name
 }
 
 func (s *Server) testAction(w http.ResponseWriter, r *http.Request) {
@@ -390,6 +393,12 @@ func (s *Server) testAction(w http.ResponseWriter, r *http.Request) {
 	case "contact":
 		sim.SendWith(a.ChatID, a.UserID, "", map[string]any{"contact": map[string]any{
 			"phone_number": "+989120000000", "first_name": sim.UserName(a.UserID), "user_id": float64(a.UserID)}})
+	case "file":
+		if !slices.Contains(tgsim.UserMediaKinds, a.Kind) {
+			err = errors.New("نوع فایل نامعتبر: " + a.Kind)
+			break
+		}
+		sim.SendFile(a.ChatID, a.UserID, a.Kind, a.Text, a.Name)
 	case "inline":
 		sim.InlineQuery(a.UserID, a.Text)
 	default:

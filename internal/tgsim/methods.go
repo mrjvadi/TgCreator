@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 )
@@ -299,12 +300,12 @@ func fileDesc(v any) string {
 	}
 }
 
-var fileSeq int
+var fileSeq atomic.Int64
 
 func fileObject(kind string) any {
-	fileSeq++
-	id := fmt.Sprintf("SIM_%s_%d", strings.ToUpper(kind), fileSeq)
-	base := map[string]any{"file_id": id, "file_unique_id": "u" + id, "file_size": float64(1024 * fileSeq)}
+	seq := fileSeq.Add(1)
+	id := fmt.Sprintf("SIM_%s_%d", strings.ToUpper(kind), seq)
+	base := map[string]any{"file_id": id, "file_unique_id": "u" + id, "file_size": float64(1024 * seq)}
 	switch kind {
 	case "photo":
 		base["width"], base["height"] = float64(800), float64(600)
@@ -934,7 +935,7 @@ func describeUserMsg(m *Msg) string {
 	var parts []string
 	for k, v := range m.Extra {
 		switch k {
-		case "photo", "video", "document", "sticker", "voice", "audio":
+		case "photo", "video", "document", "sticker", "voice", "audio", "animation", "video_note":
 			parts = append(parts, mediaIcons[k]+" "+k)
 		case "contact":
 			parts = append(parts, fmt.Sprintf("👤 shared contact %v", v.(map[string]any)["phone_number"]))

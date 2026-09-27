@@ -1,8 +1,10 @@
 package tmpl
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"html"
+	"math/big"
 	"regexp"
 	"strings"
 
@@ -40,6 +42,16 @@ var functions = []expr.Option{
 		err := json.Unmarshal([]byte(ToString(p[0])), &v)
 		return v, err
 	}, new(func(any) any)),
+	// randomString(n) is n random letters and digits (crypto/rand), e.g.
+	// unguessable codes for links; randomString(n, "0123456789") for digits.
+	expr.Function("randomString", func(p ...any) (any, error) {
+		n, _ := ToInt64(p[0])
+		alphabet := "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+		if len(p) > 1 && ToString(p[1]) != "" {
+			alphabet = ToString(p[1])
+		}
+		return randomString(int(n), alphabet), nil
+	}),
 	// at(list, i) / at(map, key): nil instead of an error when missing.
 	expr.Function("at", func(p ...any) (any, error) { return at(p[0], p[1]), nil }),
 	expr.Function("coalesce", func(p ...any) (any, error) {
@@ -137,4 +149,21 @@ func at(container, key any) any {
 		return string(r[i])
 	}
 	return nil
+}
+
+func randomString(n int, alphabet string) string {
+	if n <= 0 || n > 256 {
+		n = 8
+	}
+	r := []rune(alphabet)
+	out := make([]rune, n)
+	limit := big.NewInt(int64(len(r)))
+	for i := range out {
+		k, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			panic(err)
+		}
+		out[i] = r[k.Int64()]
+	}
+	return string(out)
 }

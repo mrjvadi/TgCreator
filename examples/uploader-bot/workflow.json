@@ -1,0 +1,170 @@
+{
+  "name": "Uploader bot (code → file)",
+  "version": 1,
+  "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
+  "services": { "redis": { "url": "${REDIS_URL:-redis://localhost:6379/0}" } },
+  "variables": {
+    "admins": [1001],
+    "channel": "@test_channel",
+    "auto_delete": "",
+    "protect": false
+  },
+  "nodes": [
+    {
+      "id": "upload", "type": "trigger.message", "name": "فایل از مدیر",
+      "params": {
+        "chat_types": ["private"],
+        "has": ["document", "video", "photo", "audio", "voice", "animation", "video_note", "sticker"],
+        "condition": "from.id in vars.admins"
+      }
+    },
+    {
+      "id": "up_vars", "type": "logic.set", "name": "کد و مشخصات فایل",
+      "params": {
+        "vars": {
+          "code": "{{ randomString(8) }}",
+          "kind": "{{ message.animation != nil ? 'animation' : message.video != nil ? 'video' : message.document != nil ? 'document' : message.photo != nil ? 'photo' : message.audio != nil ? 'audio' : message.voice != nil ? 'voice' : message.video_note != nil ? 'video_note' : 'sticker' }}",
+          "file": "{{ coalesce(message.animation.file_id, message.video.file_id, message.document.file_id, at(message.photo, -1).file_id, message.audio.file_id, message.voice.file_id, message.video_note.file_id, message.sticker.file_id) }}",
+          "name": "{{ coalesce(message.document.file_name, message.video.file_name, message.audio.file_name, message.animation.file_name) ?? '' }}",
+          "size": "{{ coalesce(message.document.file_size, message.video.file_size, at(message.photo, -1).file_size, message.audio.file_size, message.voice.file_size, message.animation.file_size, message.video_note.file_size, message.sticker.file_size, 0) }}"
+        }
+      }
+    },
+    {
+      "id": "up_save", "type": "redis.set", "name": "ذخیرهٔ فایل",
+      "params": {
+        "key": "up:{{ vars.code }}", "nx": true,
+        "value": {
+          "type": "{{ vars.kind }}", "file": "{{ vars.file }}", "name": "{{ vars.name }}", "size": "{{ vars.size }}",
+          "caption": "{{ message.caption ?? '' }}", "entities": "{{ message.caption_entities }}", "by": "{{ from.id }}"
+        }
+      }
+    },
+    { "id": "up_count", "type": "redis.incr", "params": { "key": "stats:files" } },
+    {
+      "id": "up_ok", "type": "telegram.send_message", "name": "کد و لینک برای مدیر",
+      "params": {
+        "reply": true,
+        "text": "✅ <b>فایل ذخیره شد</b>{{ vars.name != '' ? '\\n📄 ' + escapeHTML(vars.name) : '' }}{{ vars.size >= 1048576 ? '\\n💾 ' + string(round(vars.size / 1048576 * 10) / 10) + ' MB' : vars.size > 0 ? '\\n💾 ' + string(ceil(vars.size / 1024)) + ' KB' : '' }}\n\n🔑 کد: <code>{{ vars.code }}</code>\n🔗 لینک اشتراک:\nhttps://t.me/{{ bot.username }}?start={{ vars.code }}",
+        "buttons": [[{ "text": "🗑 حذف این فایل", "callback_data": "del:{{ vars.code }}" }]]
+      }
+    },
+    { "id": "del_check", "type": "logic.if", "name": "مدیر است؟", "params": { "condition": "from.id in vars.admins" } },
+    { "id": "del_key", "type": "redis.del", "name": "حذف فایل", "params": { "key": "up:{{ split(data, ':')[1] }}" } },
+    { "id": "del_done", "type": "telegram.edit_message", "name": "اعلام حذف", "params": { "text": "🗑 فایل با کد <code>{{ split(data, ':')[1] }}</code> حذف شد و لینکش دیگر کار نمی‌کند." } },
+
+    { "id": "start_code", "type": "trigger.command", "name": "لینک اشتراک (/start کد)", "params": { "commands": ["start"], "chat_types": ["private"], "condition": "len(args) > 0" } },
+    { "id": "code_start", "type": "logic.set", "params": { "vars": { "code": "{{ args[0] }}" } } },
+    { "id": "text_code", "type": "trigger.message", "name": "ارسال کد", "params": { "chat_types": ["private"], "regex": "^\\s*[A-Za-z0-9]{8}\\s*$", "condition": "message.text != nil" } },
+    { "id": "code_text", "type": "logic.set", "params": { "vars": { "code": "{{ trim(text) }}" } } },
+    { "id": "code_join", "type": "logic.set", "name": "کد از دکمهٔ «عضو شدم»", "params": { "vars": { "code": "{{ split(data, ':')[1] }}" } } },
+
+    { "id": "need_join", "type": "logic.if", "name": "عضویت اجباری؟", "params": { "condition": "vars.channel != ''" } },
+    { "id": "member", "type": "tg.getChatMember", "name": "وضعیت عضویت", "params": { "chat_id": "{{ vars.channel }}", "user_id": "{{ from.id }}" } },
+    {
+      "id": "is_member", "type": "logic.if", "name": "عضو کانال است؟",
+      "params": { "condition": "nodes.member.status in ['creator', 'administrator', 'member'] || nodes.member.is_member == true" }
+    },
+    { "id": "from_button", "type": "logic.if", "name": "از دکمه آمده؟", "params": { "condition": "data startsWith 'join:'" } },
+    { "id": "still_not", "type": "telegram.answer_callback", "params": { "text": "هنوز عضو کانال نشده‌اید.", "show_alert": true } },
+    {
+      "id": "join_msg", "type": "telegram.send_message", "name": "درخواست عضویت",
+      "params": {
+        "text": "🔒 برای دریافت فایل ابتدا در کانال ما عضو شوید، سپس «عضو شدم» را بزنید.",
+        "buttons": [
+          [{ "text": "📢 عضویت در کانال", "url": "https://t.me/{{ trimPrefix(vars.channel, '@') }}" }],
+          [{ "text": "✅ عضو شدم", "callback_data": "join:{{ vars.code }}" }]
+        ]
+      }
+    },
+
+    { "id": "fetch", "type": "redis.get", "name": "خواندن فایل", "params": { "key": "up:{{ vars.code }}", "json": true } },
+    { "id": "found", "type": "logic.if", "name": "کد معتبر است؟", "params": { "condition": "nodes.fetch != nil" } },
+    { "id": "not_found", "type": "telegram.send_message", "params": { "text": "❌ این کد معتبر نیست یا فایلش حذف شده است." } },
+    {
+      "id": "send_file", "type": "telegram.send_media", "name": "ارسال فایل",
+      "params": {
+        "type": "{{ nodes.fetch.type }}",
+        "file": "{{ nodes.fetch.file }}",
+        "caption": "{{ nodes.fetch.type in ['sticker', 'video_note'] || nodes.fetch.caption == '' ? nil : nodes.fetch.caption }}",
+        "caption_entities": "{{ nodes.fetch.type in ['sticker', 'video_note'] ? nil : nodes.fetch.entities }}",
+        "parse_mode": "",
+        "protect_content": "{{ vars.protect }}"
+      }
+    },
+    { "id": "dl_count", "type": "redis.incr", "name": "شمارش دانلود", "params": { "key": "dl:{{ vars.code }}" } },
+    { "id": "dl_total", "type": "redis.incr", "params": { "key": "stats:downloads" } },
+    { "id": "auto_del", "type": "logic.if", "name": "حذف خودکار؟", "params": { "condition": "vars.auto_delete != ''" } },
+    { "id": "warn", "type": "telegram.send_message", "params": { "text": "⏳ این فایل {{ vars.auto_delete }} دیگر حذف می‌شود؛ آن را در Saved Messages ذخیره کنید." } },
+    { "id": "wait", "type": "logic.delay", "params": { "duration": "{{ vars.auto_delete }}" } },
+    { "id": "rm_file", "type": "telegram.delete_message", "params": { "message_id": "{{ nodes.send_file.message_id }}" } },
+    { "id": "rm_warn", "type": "telegram.delete_message", "params": { "message_id": "{{ nodes.warn.message_id }}" } },
+
+    { "id": "start", "type": "trigger.command", "name": "/start", "params": { "commands": ["start"], "chat_types": ["private"], "condition": "len(args) == 0" } },
+    {
+      "id": "welcome", "type": "telegram.send_message",
+      "params": {
+        "text": "{{ from.id in vars.admins ? '👋 سلام مدیر!\\nهر فایلی (سند، ویدیو، عکس، آهنگ، گیف…) بفرستید تا کد و لینک اشتراکش را بگیرید.\\n\\nدستورها:\\n/stats آمار\\n/info کد — مشخصات یک فایل\\n/del کد — حذف فایل' : '👋 سلام ' + escapeHTML(from.first_name) + '!\\nکد فایل را بفرستید یا از لینکی که دارید وارد شوید.' }}"
+      }
+    },
+
+    { "id": "stats_cmd", "type": "trigger.command", "name": "/stats (مدیر)", "params": { "commands": ["stats"], "chat_types": ["private"], "condition": "from.id in vars.admins" } },
+    { "id": "stats_get", "type": "redis.command", "params": { "command": ["MGET", "stats:files", "stats:downloads"] } },
+    { "id": "stats_msg", "type": "telegram.send_message", "params": { "text": "📊 <b>آمار</b>\n📁 فایل‌های آپلودشده: {{ at(nodes.stats_get, 0) ?? 0 }}\n⬇️ دانلودها: {{ at(nodes.stats_get, 1) ?? 0 }}" } },
+
+    { "id": "info_cmd", "type": "trigger.command", "name": "/info (مدیر)", "params": { "commands": ["info"], "chat_types": ["private"], "condition": "from.id in vars.admins && len(args) == 1" } },
+    { "id": "info_get", "type": "redis.get", "params": { "key": "up:{{ args[0] }}", "json": true } },
+    { "id": "info_found", "type": "logic.if", "params": { "condition": "nodes.info_get != nil" } },
+    { "id": "info_dl", "type": "redis.get", "params": { "key": "dl:{{ args[0] }}" } },
+    {
+      "id": "info_msg", "type": "telegram.send_message",
+      "params": { "text": "📄 {{ nodes.info_get.name != '' ? escapeHTML(nodes.info_get.name) : nodes.info_get.type }}\n🔑 <code>{{ args[0] }}</code>\n⬇️ دانلود: {{ nodes.info_dl ?? 0 }}\n🔗 https://t.me/{{ bot.username }}?start={{ args[0] }}" }
+    },
+
+    { "id": "delcmd", "type": "trigger.command", "name": "/del (مدیر)", "params": { "commands": ["del"], "chat_types": ["private"], "condition": "from.id in vars.admins && len(args) == 1" } },
+    { "id": "delcmd_del", "type": "redis.command", "name": "حذف فایل و شمارنده", "params": { "command": ["DEL", "up:{{ args[0] }}", "dl:{{ args[0] }}"] } },
+    { "id": "delcmd_ok", "type": "logic.if", "params": { "condition": "nodes.delcmd_del > 0" } },
+    { "id": "delcmd_msg", "type": "telegram.send_message", "params": { "text": "🗑 فایل <code>{{ args[0] }}</code> حذف شد." } }
+  ],
+  "connections": {
+    "upload": { "main": ["up_vars"] },
+    "up_vars": { "main": ["up_save"] },
+    "up_save": { "main": ["up_count"] },
+    "up_count": { "main": ["up_ok"] },
+    "up_ok": { "btn:del:{{ vars.code }}": ["del_check"] },
+    "del_check": { "true": ["del_key"] },
+    "del_key": { "main": ["del_done"] },
+
+    "start_code": { "main": ["code_start"] },
+    "text_code": { "main": ["code_text"] },
+    "code_start": { "main": ["need_join"] },
+    "code_text": { "main": ["need_join"] },
+    "join_msg": { "btn:join:{{ vars.code }}": ["code_join"] },
+    "code_join": { "main": ["need_join"] },
+    "need_join": { "true": ["member"], "false": ["fetch"] },
+    "member": { "main": ["is_member"], "error": ["fetch"] },
+    "is_member": { "true": ["fetch"], "false": ["from_button"] },
+    "from_button": { "true": ["still_not"], "false": ["join_msg"] },
+
+    "fetch": { "main": ["found"] },
+    "found": { "true": ["send_file"], "false": ["not_found"] },
+    "send_file": { "main": ["dl_count"] },
+    "dl_count": { "main": ["dl_total"] },
+    "dl_total": { "main": ["auto_del"] },
+    "auto_del": { "true": ["warn"] },
+    "warn": { "main": ["wait"] },
+    "wait": { "main": ["rm_file"] },
+    "rm_file": { "main": ["rm_warn"] },
+
+    "start": { "main": ["welcome"] },
+    "stats_cmd": { "main": ["stats_get"] },
+    "stats_get": { "main": ["stats_msg"] },
+    "info_cmd": { "main": ["info_get"] },
+    "info_get": { "main": ["info_found"] },
+    "info_found": { "true": ["info_dl"], "false": ["not_found"] },
+    "info_dl": { "main": ["info_msg"] },
+    "delcmd": { "main": ["delcmd_del"] },
+    "delcmd_del": { "main": ["delcmd_ok"] },
+    "delcmd_ok": { "true": ["delcmd_msg"], "false": ["not_found"] }
+  }
+}

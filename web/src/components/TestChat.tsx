@@ -14,6 +14,15 @@ const statusText: Record<LiveStatus, string> = {
   offline: "قطع شد",
 };
 
+// Files the test user can send; the text in the input becomes the caption.
+const fileKinds: [string, string, string][] = [
+  ["document", "📄 ارسال فایل", "report.pdf"],
+  ["video", "🎬 ارسال ویدیو", "movie.mp4"],
+  ["photo", "📷 ارسال عکس", ""],
+  ["audio", "🎵 ارسال آهنگ", "song.mp3"],
+  ["voice", "🎤 ارسال پیام صوتی", ""],
+];
+
 const mediaLabel: Record<string, string> = {
   photo: "📷 عکس", video: "🎬 ویدیو", audio: "🎵 صدا", document: "📄 فایل", animation: "🎞 گیف", voice: "🎤 پیام صوتی",
   video_note: "⏺ ویدیو مسیج", sticker: "استیکر", poll: "📊 نظرسنجی", dice: "🎲 تاس", invoice: "🧾 صورت‌حساب",
@@ -301,6 +310,22 @@ export default function TestChat({ workflow, onClose }: { workflow: () => Workfl
             </button>
             {showMore && (
               <div className="pop tg-more" onMouseLeave={() => setShowMore(false)}>
+                {fileKinds.map(([kind, label, name]) => (
+                  <button
+                    type="button"
+                    key={kind}
+                    className="pop-item"
+                    disabled={isChannel}
+                    title="متن نوشته‌شده در کادر پیام، کپشن فایل می‌شود"
+                    onClick={() => {
+                      setShowMore(false);
+                      act({ type: "file", kind, text, name });
+                      setText("");
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
                 <button type="button" className="pop-item" disabled={snap?.chat.type !== "private"} onClick={() => (setShowMore(false), act({ type: "contact" }))}>
                   <Phone size={14} /> ارسال شماره تماس
                 </button>

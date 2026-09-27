@@ -111,6 +111,12 @@ func defaultCallbackID(x *engine.Exec, p map[string]any) {
 }
 
 func defaultParseMode(x *engine.Exec, p map[string]any) {
+	// Entities carry the formatting themselves; Telegram rejects both.
+	if p["entities"] != nil || p["caption_entities"] != nil {
+		if _, ok := p["parse_mode"]; !ok {
+			return
+		}
+	}
 	if _, ok := p["parse_mode"]; !ok {
 		if pm := x.E.WF.Bot.ParseMode; pm != "" {
 			p["parse_mode"] = pm
@@ -151,6 +157,12 @@ func callAPI(x *engine.Exec, method string, p map[string]any, defaults []default
 		d(x, p)
 	}
 	applyHelpers(x, p)
+	// nil means "not set": {{ cond ? value : nil }} leaves a parameter out.
+	for k, v := range p {
+		if v == nil {
+			delete(p, k)
+		}
+	}
 	raw, err := x.TG().Call(x.Ctx, method, p)
 	if err != nil {
 		return engine.Result{}, err
