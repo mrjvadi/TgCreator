@@ -155,6 +155,9 @@ func callAPI(x *engine.Exec, method string, p map[string]any, defaults []default
 	if err != nil {
 		return engine.Result{}, err
 	}
+	if method == "answerCallbackQuery" {
+		x.MarkCallbackAnswered()
+	}
 	var out any
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return engine.Result{}, err

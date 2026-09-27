@@ -1,7 +1,7 @@
 import { CircleAlert, Copy, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { useContext, useMemo, useState } from "react";
 import { CatalogContext } from "../context";
-import { isTrigger, metaFor, outputsOf, type FlowNode } from "../convert";
+import { BTN, isTrigger, metaFor, outputLabel, outputsOf, type FlowNode } from "../convert";
 import { ButtonsEditor, JsonEditor, KeyboardEditor, MethodPicker, TagsInput, TextField, VarsEditor, baseVars, coerce, type VarGroup } from "../editors/fields";
 import { NodeIcon } from "../icons";
 import { categories, type BotField, type Issue, type Json, type Param, type WorkflowNode } from "../types";
@@ -139,7 +139,7 @@ export default function Inspector({ node, nodeIds, variables, issues, descriptio
         {tab === "params" && (
           <>
             {meta?.params.map((p) => (
-              <ParamField key={`${node.id}:${p.name}`} param={p} value={params[p.name]} onChange={(v) => setParam(p.name, v)} vars={vars} />
+              <ParamField key={`${node.id}:${p.name}`} param={p} value={params[p.name]} onChange={(v) => setParam(p.name, v)} vars={vars} nodeId={node.id} />
             ))}
             {tgMethod?.fields.map((f) => (
               <BotFieldEditor key={`${node.id}:${f.name}`} field={f} value={params[f.name]} onChange={(v) => setParam(f.name, v)} vars={vars} />
@@ -249,8 +249,8 @@ export default function Inspector({ node, nodeIds, variables, issues, descriptio
             <ul className="out-list">
               {outs.map((o) => (
                 <li key={o}>
-                  <span className={`out-label out-${o}`}>{outputLabels[o] || "اصلی"}</span>
-                  {outputHelp[o] ?? `وقتی مقدار برابر «${o}» باشد`}
+                  <span className={`out-label out-${o.startsWith(BTN) ? "btn" : o}`}>{outputLabel(spec, o, outputLabels) || "اصلی"}</span>
+                  {o.startsWith(BTN) ? "وقتی کاربر این دکمه را بزند (پیام همان پیامِ دکمه است)" : outputHelp[o] ?? `وقتی مقدار برابر «${o}» باشد`}
                 </li>
               ))}
             </ul>
@@ -276,7 +276,7 @@ function FieldLabel({ label, required, hint }: { label: React.ReactNode; require
   );
 }
 
-export function ParamField({ param: p, value, onChange, vars }: { param: Param; value: Json | undefined; onChange: (v: Json | undefined) => void; vars: VarGroup[] }) {
+export function ParamField({ param: p, value, onChange, vars, nodeId }: { param: Param; value: Json | undefined; onChange: (v: Json | undefined) => void; vars: VarGroup[]; nodeId?: string }) {
   const str = value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value);
   let editor: React.ReactNode;
   switch (p.type) {
@@ -316,7 +316,7 @@ export function ParamField({ param: p, value, onChange, vars }: { param: Param; 
       );
       break;
     case "buttons":
-      editor = <ButtonsEditor value={value} onChange={onChange} vars={vars} />;
+      editor = <ButtonsEditor value={value} onChange={onChange} vars={vars} nodeId={nodeId} />;
       break;
     case "keyboard":
       editor = <KeyboardEditor value={value} onChange={onChange} />;

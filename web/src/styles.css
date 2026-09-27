@@ -1383,11 +1383,9 @@ button.issue-line:hover {
 /* ---------- nodes ---------- */
 
 .node {
+  --pad: 13px;
   width: 250px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 11px 13px;
+  padding: 11px var(--pad);
   background: var(--surface);
   border: 1.5px solid var(--line);
   border-radius: 12px;
@@ -1408,7 +1406,78 @@ button.issue-line:hover {
 
 .node.trigger {
   border-radius: 28px 12px 12px 28px;
-  padding-left: 11px;
+}
+
+.node.msg {
+  width: 270px;
+}
+
+.node-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+/* handles sit on the card border, outside the padding */
+.node-main > .react-flow__handle-left {
+  left: calc(-1 * var(--pad) - 1px);
+}
+
+.node-main > .node-out,
+.btn-out > .node-out {
+  right: calc(-1 * var(--pad) - 1px);
+}
+
+.node.msg .node-sub {
+  -webkit-line-clamp: 3;
+}
+
+.btn-outs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.btn-out {
+  position: relative;
+}
+
+.btn-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.btn-out.linked .btn-chip {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+}
+
+.btn-out.url .btn-chip {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--line);
+  font-weight: 600;
+}
+
+.react-flow__handle.hd-btn {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .node.has-error {

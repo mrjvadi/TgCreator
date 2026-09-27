@@ -1,0 +1,43 @@
+{
+  "name": "Button menu (connect buttons directly)",
+  "version": 1,
+  "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
+  "nodes": [
+    { "id": "start", "type": "trigger.command", "params": { "commands": ["start"] }, "position": [0, 60] },
+    {
+      "id": "menu", "type": "telegram.send_message", "name": "منوی اصلی", "position": [340, 0],
+      "params": {
+        "text": "سلام {{ escapeHTML(from.first_name) }} 👋\nچه کاری برایتان انجام دهم؟",
+        "buttons": [
+          [{ "text": "📦 محصولات", "callback_data": "menu.1" }, { "text": "ℹ️ درباره ما", "callback_data": "menu.2" }],
+          [{ "text": "🌐 سایت ما", "url": "https://example.com" }]
+        ]
+      }
+    },
+    {
+      "id": "products", "type": "telegram.edit_message", "name": "محصولات", "position": [760, -120],
+      "params": { "text": "📦 محصولات ما:\n• اشتراک ماهانه\n• اشتراک سالانه", "buttons": [[{ "text": "🔙 بازگشت", "callback_data": "products.1" }]] }
+    },
+    {
+      "id": "about", "type": "telegram.edit_message", "name": "درباره ما", "position": [760, 140],
+      "params": { "text": "ما ربات‌های تلگرامی سریع و ساده می‌سازیم.", "buttons": [[{ "text": "🔙 بازگشت", "callback_data": "about.1" }]] }
+    },
+    {
+      "id": "back", "type": "telegram.edit_message", "name": "بازگشت به منو", "position": [1180, 0],
+      "params": {
+        "text": "چه کاری برایتان انجام دهم؟",
+        "buttons": [
+          [{ "text": "📦 محصولات", "callback_data": "back.1" }, { "text": "ℹ️ درباره ما", "callback_data": "back.2" }],
+          [{ "text": "🌐 سایت ما", "url": "https://example.com" }]
+        ]
+      }
+    }
+  ],
+  "connections": {
+    "start": { "main": ["menu"] },
+    "menu": { "btn:menu.1": ["products"], "btn:menu.2": ["about"] },
+    "products": { "btn:products.1": ["back"] },
+    "about": { "btn:about.1": ["back"] },
+    "back": { "btn:back.1": ["products"], "btn:back.2": ["about"] }
+  }
+}

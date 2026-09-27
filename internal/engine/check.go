@@ -83,6 +83,13 @@ func Check(wf *workflow.Workflow) []Issue {
 			continue
 		}
 		for output, targets := range outs {
+			if data, isBtn := strings.CutPrefix(output, ButtonPrefix); isBtn && len(targets) > 0 {
+				if list, has := ButtonData(byID[from].Params); !has {
+					add("error", from, "خروجی دکمهٔ %q وصل است ولی این نود دکمه ندارد", data)
+				} else if !contains(list, data) && !strings.Contains(fmt.Sprint(byID[from].Params["buttons"]), "{{") {
+					add("warning", from, "دکمه‌ای با callback_data %q وجود ندارد", data)
+				}
+			}
 			for _, to := range targets {
 				if _, ok := byID[to]; !ok {
 					add("error", from, "خروجی %q به نود ناموجود %q وصل است", output, to)
@@ -140,6 +147,15 @@ func isEmpty(v any) bool {
 		return len(t) == 0
 	case map[string]any:
 		return len(t) == 0
+	}
+	return false
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
 	}
 	return false
 }

@@ -26,6 +26,8 @@ type Exec struct {
 	steps    int   // shared by nested branches (logic.foreach)
 	cur      *node // node being executed
 	bg       *sync.WaitGroup
+
+	callbackAnswered bool
 }
 
 var messageTypes = map[string]bool{
@@ -243,3 +245,6 @@ func (x *Exec) fork() *Exec {
 	cp.Env["vars"], cp.Env["nodes"] = cp.Vars, cp.Results
 	return &cp
 }
+
+// MarkCallbackAnswered records that the flow answered the callback query.
+func (x *Exec) MarkCallbackAnswered() { x.callbackAnswered = true }

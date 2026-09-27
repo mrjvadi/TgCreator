@@ -17,7 +17,32 @@ export function metaFor(metas: MetaMap, type: string): NodeMeta | undefined {
   return metas[type]?.meta ?? (type.startsWith("tg.") ? metas["tg."]?.meta : undefined);
 }
 
-/** Outputs of a node, including switch cases. "error" is added by the UI. */
+export const BTN = "btn:";
+
+export interface ButtonInfo {
+  text: string;
+  data?: string; // callback_data; buttons without it (links…) have no output
+  url?: boolean;
+}
+
+/** Inline buttons of a node that sends or edits a message, flattened. */
+export function buttonsOf(spec: WorkflowNode, meta?: NodeMeta): ButtonInfo[] {
+  if (meta && !meta.params.some((p) => p.type === "buttons")) return [];
+  const rows = spec.params?.buttons;
+  if (!Array.isArray(rows)) return [];
+  const out: ButtonInfo[] = [];
+  for (const r of rows) {
+    for (const b of Array.isArray(r) ? r : [r]) {
+      if (!b || typeof b !== "object" || Array.isArray(b)) continue;
+      const btn = b as Record<string, unknown>;
+      const data = typeof btn.callback_data === "string" && btn.callback_data ? btn.callback_data : undefined;
+      out.push({ text: String(btn.text ?? ""), data, url: !data });
+    }
+  }
+  return out;
+}
+
+/** Outputs of a node: its own outputs, switch cases and one per button. "error" is added by the UI. */
 export function outputsOf(spec: WorkflowNode, meta?: NodeMeta): string[] {
   if (!meta) return ["main"];
   const outs = [...meta.outputs];
@@ -25,7 +50,26 @@ export function outputsOf(spec: WorkflowNode, meta?: NodeMeta): string[] {
     const cases = spec.params?.[meta.case_outputs];
     if (Array.isArray(cases)) outs.unshift(...cases.map(String).filter(Boolean));
   }
+  for (const b of buttonsOf(spec, meta)) if (b.data && !outs.includes(BTN + b.data)) outs.push(BTN + b.data);
   return outs;
+}
+
+/** Human label of an output ("بله", a button's text…). */
+export function outputLabel(spec: WorkflowNode | undefined, out: string, labels: Record<string, string>): string {
+  if (out.startsWith(BTN)) {
+    const data = out.slice(BTN.length);
+    const b = spec ? buttonsOf(spec).find((x) => x.data === data) : undefined;
+    return b?.text || data;
+  }
+  return labels[out] ?? out;
+}
+
+/** Generates a callback_data that is unique for this node: "<nodeId>.<n>". */
+export function autoCallbackData(nodeId: string, used: Set<string>): string {
+  for (let i = 1; ; i++) {
+    const d = `${nodeId}.${i}`;
+    if (!used.has(d)) return d;
+  }
 }
 
 export function edgeFor(source: string, output: string, target: string): Edge {

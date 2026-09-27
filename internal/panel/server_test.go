@@ -60,7 +60,7 @@ func TestPanelAPI(t *testing.T) {
 
 	var list []struct{ ID string }
 	call(t, s, "GET", "/api/examples", nil, &list)
-	if len(list) != 3 {
+	if len(list) != 4 {
 		t.Fatalf("examples: %+v", list)
 	}
 	req := httptest.NewRequest("GET", "/api/examples/menu-bot", nil)
@@ -151,5 +151,51 @@ func TestPanelBasicAuth(t *testing.T) {
 	s.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("with auth: %d", rec.Code)
+	}
+}
+
+// Buttons connected straight to the next node, through the panel test chat.
+func TestPanelButtonMenu(t *testing.T) {
+	s := New(Config{}, nil)
+	defer s.Close()
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/examples/button-menu", nil))
+	var sess struct{ ID, Error string }
+	if code := call(t, s, "POST", "/api/test", rec.Body.Bytes(), &sess); code != 200 {
+		t.Fatalf("start: %d %s", code, sess.Error)
+	}
+	defer call(t, s, "DELETE", "/api/test/"+sess.ID, nil, nil)
+	act := func(a map[string]any) tgsim.ChatSnapshot {
+		var res struct{ Chat tgsim.ChatSnapshot }
+		a["chat_id"] = UserMe
+		if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", a, &res); code != 200 {
+			t.Fatalf("%v: %d", a, code)
+		}
+		return res.Chat
+	}
+	last := func(c tgsim.ChatSnapshot) tgsim.MsgView { return c.Messages[len(c.Messages)-1] }
+
+	menu := last(act(map[string]any{"type": "send", "text": "/start"}))
+	if !strings.Contains(menu.Text, "چه کاری") || len(menu.Buttons) != 2 {
+		t.Fatalf("menu = %+v", menu)
+	}
+	steps := []struct{ button, want string }{
+		{"📦 محصولات", "محصولات ما"},
+		{"🔙 بازگشت", "چه کاری برایتان"},
+		{"ℹ️ درباره ما", "ربات‌های تلگرامی"},
+		{"🔙 بازگشت", "چه کاری برایتان"},
+	}
+	for _, st := range steps {
+		c := act(map[string]any{"type": "press", "message_id": menu.ID, "button": st.button})
+		if got := last(c); got.ID != menu.ID || !strings.Contains(got.Text, st.want) {
+			t.Fatalf("after %q: %+v (the same message must be edited)", st.button, got)
+		}
+	}
+	var evs struct{ Events []tgsim.Event }
+	call(t, s, "GET", "/api/test/"+sess.ID+"/events?after=0", nil, &evs)
+	for _, e := range evs.Events {
+		if e.Kind == "error" || e.Kind == "log" {
+			t.Errorf("unexpected problem: %s", e.Text)
+		}
 	}
 }

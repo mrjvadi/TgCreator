@@ -51,7 +51,7 @@ import NodeCreator, { DND_TYPE } from "./components/NodeCreator";
 import SettingsDialog from "./components/SettingsDialog";
 import TestChat from "./components/TestChat";
 import { CatalogContext, EditorContext, type CatalogState } from "./context";
-import { edgeFor, fromWorkflow, isTrigger, layout, metaFor, outputsOf, toWorkflow, uniqueId, type FlowNode, type WorkflowRest } from "./convert";
+import { BTN, buttonsOf, edgeFor, fromWorkflow, isTrigger, layout, metaFor, outputsOf, toWorkflow, uniqueId, type FlowNode, type WorkflowRest } from "./convert";
 import { ToastProvider, useToast } from "./toast";
 import { categories, type Issue, type Json, type Workflow } from "./types";
 
@@ -61,15 +61,56 @@ const nodeTypes = { tg: FlowNodeView };
 const edgeTypes = { tg: EdgeView };
 const defaultEdgeOptions = { type: "tg" };
 
+const menuButtons = (prefix: string) => [
+  [
+    { text: "📦 محصولات", callback_data: `${prefix}.1` },
+    { text: "ℹ️ درباره ما", callback_data: `${prefix}.2` },
+  ],
+  [{ text: "🌐 سایت ما", url: "https://example.com" }],
+];
+
 const starter: Workflow = {
   name: "ربات جدید",
   version: 1,
   bot: { token: "${BOT_TOKEN}", parse_mode: "HTML" },
   nodes: [
-    { id: "start", type: "trigger.command", params: { commands: ["start"] }, position: [0, 0] },
-    { id: "hello", type: "telegram.send_message", params: { text: "سلام {{ escapeHTML(from.first_name) }} 👋" }, position: [340, 0] },
+    { id: "start", type: "trigger.command", params: { commands: ["start"] }, position: [0, 60] },
+    {
+      id: "menu",
+      type: "telegram.send_message",
+      name: "منوی اصلی",
+      params: { text: "سلام {{ escapeHTML(from.first_name) }} 👋\nچه کاری برایتان انجام دهم؟", buttons: menuButtons("menu") },
+      position: [340, 0],
+    },
+    {
+      id: "products",
+      type: "telegram.edit_message",
+      name: "محصولات",
+      params: { text: "📦 محصولات ما:\n• اشتراک ماهانه\n• اشتراک سالانه", buttons: [[{ text: "🔙 بازگشت", callback_data: "products.1" }]] },
+      position: [760, -120],
+    },
+    {
+      id: "about",
+      type: "telegram.edit_message",
+      name: "درباره ما",
+      params: { text: "ما ربات‌های تلگرامی سریع و ساده می‌سازیم.", buttons: [[{ text: "🔙 بازگشت", callback_data: "about.1" }]] },
+      position: [760, 140],
+    },
+    {
+      id: "back",
+      type: "telegram.edit_message",
+      name: "بازگشت به منو",
+      params: { text: "چه کاری برایتان انجام دهم؟", buttons: menuButtons("back") },
+      position: [1180, 0],
+    },
   ],
-  connections: { start: { main: ["hello"] } },
+  connections: {
+    start: { main: ["menu"] },
+    menu: { "btn:menu.1": ["products"], "btn:menu.2": ["about"] },
+    products: { "btn:products.1": ["back"] },
+    about: { "btn:about.1": ["back"] },
+    back: { "btn:back.1": ["products"], "btn:back.2": ["about"] },
+  },
 };
 
 function loadDraft(): Workflow {
@@ -100,7 +141,8 @@ export default function App() {
     Promise.all([api.catalog(), api.botMethods()])
       .then(([c, m]) =>
         setCatalog({
-          metas: Object.fromEntries(c.nodes.map((n) => [n.name, n])),
+          // Be tolerant of null lists from older servers.
+          metas: Object.fromEntries(c.nodes.map((n) => [n.name, { ...n, meta: { ...n.meta, params: n.meta.params ?? [], outputs: n.meta.outputs ?? [] } }])),
           methods: m.methods,
           methodMap: Object.fromEntries(m.methods.map((x) => [x.name, x])),
           botApi: c.bot_api,
@@ -184,8 +226,14 @@ function Editor() {
   // Layout needs real node sizes: run it once React Flow has measured them.
   const pendingLayout = useRef(initial.needsLayout);
   const measured = useNodesInitialized();
+  const firstFit = useRef(true);
   useEffect(() => {
+    if (measured && firstFit.current && !pendingLayout.current) {
+      firstFit.current = false;
+      setTimeout(() => fitView({ padding: 0.15, maxZoom: 1.1 }), 30);
+    }
     if (!measured || !pendingLayout.current) return;
+    firstFit.current = false;
     pendingLayout.current = false;
     setNodes(layout(getNodes(), edgesRef.current, aspect()));
     setTimeout(() => fitView({ padding: 0.15, duration: 250 }), 30);
@@ -367,7 +415,31 @@ function Editor() {
     [screenToFlowPosition, createNode],
   );
 
-  const updateSpec = useCallback((id: string, spec: FlowNode["data"]["spec"]) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec } } : n))), [setNodes]);
+  const updateSpec = useCallback(
+    (id: string, spec: FlowNode["data"]["spec"]) => {
+      const old = getNode(id)?.data.spec;
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec } } : n)));
+      if (!old) return;
+      // Button outputs follow their button: a changed callback_data renames
+      // the connection, a removed button drops it.
+      const meta = metaFor(catalog.metas, spec.type);
+      const before = buttonsOf(old, meta).map((b) => b.data ?? "");
+      const after = buttonsOf(spec, meta).map((b) => b.data ?? "");
+      if (before.join("\n") === after.join("\n")) return;
+      const rename = new Map<string, string>();
+      if (before.length === after.length) before.forEach((d, i) => d && after[i] && d !== after[i] && rename.set(BTN + d, BTN + after[i]));
+      const keep = new Set(after.filter(Boolean).map((d) => BTN + d));
+      setEdges((es) =>
+        es.flatMap((e) => {
+          if (e.source !== id || !e.sourceHandle?.startsWith(BTN)) return [e];
+          const h = rename.get(e.sourceHandle) ?? e.sourceHandle;
+          if (!keep.has(h)) return [];
+          return h === e.sourceHandle ? [e] : [edgeFor(id, h, e.target)];
+        }),
+      );
+    },
+    [getNode, setNodes, setEdges, catalog],
+  );
 
   const rename = useCallback(
     (from: string, to: string) => {
@@ -395,7 +467,18 @@ function Editor() {
       if (!n) return;
       const nid = uniqueId(n.data.spec.type, new Set(ids));
       checkpoint();
-      setNodes((ns) => [...ns.map((x) => ({ ...x, selected: false })), { ...n, id: nid, selected: true, position: { x: n.position.x + 40, y: n.position.y + 90 }, data: { spec: { ...structuredClone(n.data.spec), id: nid } } }]);
+      const spec = { ...structuredClone(n.data.spec), id: nid };
+      // Buttons with generated callback_data get their own values.
+      if (Array.isArray(spec.params?.buttons)) {
+        spec.params.buttons = spec.params.buttons.map((row) =>
+          (Array.isArray(row) ? row : [row]).map((b) => {
+            const btn = b as Record<string, Json>;
+            const d = btn?.callback_data;
+            return typeof d === "string" && d.startsWith(n.id + ".") ? { ...btn, callback_data: nid + d.slice(n.id.length) } : btn;
+          }),
+        );
+      }
+      setNodes((ns) => [...ns.map((x) => ({ ...x, selected: false })), { ...n, id: nid, selected: true, position: { x: n.position.x + 40, y: n.position.y + 90 }, data: { spec } }]);
       setSelected(nid);
     },
     [nodes, ids, setNodes, checkpoint],

@@ -111,6 +111,9 @@ func Describe(name string, m Meta) {
 	if m.Outputs == nil {
 		m.Outputs = []string{Main}
 	}
+	if m.Params == nil {
+		m.Params = []Param{} // JSON [] rather than null for the panel
+	}
 	metas[name] = m
 }
 
@@ -143,7 +146,7 @@ func NodeTypes() []NodeType {
 		if m, ok := metas[out[i].Name]; ok {
 			out[i].Meta = m
 		} else {
-			out[i].Meta = Meta{Label: out[i].Name, Category: "other", Outputs: []string{Main}}
+			out[i].Meta = Meta{Label: out[i].Name, Category: "other", Outputs: []string{Main}, Params: []Param{}}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

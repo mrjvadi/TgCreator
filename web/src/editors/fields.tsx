@@ -1,6 +1,7 @@
 import { Braces, Link2, MousePointerClick, Plus, Search, Trash2, X } from "lucide-react";
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import { CatalogContext } from "../context";
+import { autoCallbackData } from "../convert";
 import type { Json } from "../types";
 
 // ---------- variable picker ----------
@@ -219,8 +220,10 @@ function kindOf(b: Btn): string {
   return btnKinds.find(([k]) => k in b)?.[0] ?? "callback_data";
 }
 
-export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefined; onChange: (v: Json | undefined) => void; vars: VarGroup[] }) {
+export function ButtonsEditor({ value, onChange, vars, nodeId }: { value: Json | undefined; onChange: (v: Json | undefined) => void; vars: VarGroup[]; nodeId?: string }) {
   const rows = rowsOf(value);
+  const used = new Set(rows.flat().map((b) => String(b.callback_data ?? "")));
+  const newData = () => autoCallbackData(nodeId ?? "btn", used);
   const [sel, setSel] = useState<[number, number] | null>(null);
   const set = (r: Btn[][]) => {
     const clean = r.filter((row) => row.length);
@@ -228,7 +231,8 @@ export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefin
   };
   const update = (ri: number, bi: number, b: Btn) => set(rows.map((row, i) => (i === ri ? row.map((x, j) => (j === bi ? b : x)) : row)));
   const add = (ri: number) => {
-    const next = ri === rows.length ? [...rows, [{ text: "دکمه", callback_data: "" }]] : rows.map((r, i) => (i === ri ? [...r, { text: "دکمه", callback_data: "" }] : r));
+    const b = { text: "دکمه", callback_data: newData() };
+    const next = ri === rows.length ? [...rows, [b]] : rows.map((r, i) => (i === ri ? [...r, b] : r));
     set(next);
     setSel([ri, ri === rows.length ? 0 : rows[ri].length]);
   };
@@ -282,7 +286,8 @@ export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefin
                 className={kind === k ? "on" : ""}
                 onClick={() => {
                   const nb: Btn = { text: cur.text ?? "" };
-                  nb[k] = k === "web_app" ? { url: val } : val;
+                  const v = k === "callback_data" && !val ? newData() : val;
+                  nb[k] = k === "web_app" ? { url: v } : v;
                   update(sel[0], sel[1], nb);
                 }}
               >
@@ -299,7 +304,7 @@ export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefin
           />
           {kind === "callback_data" && (
             <div className="hint">
-              <MousePointerClick size={12} /> با نود «کلیک دکمه» و همین مقدار (یا پیشوندش) پاسخ دهید
+              <MousePointerClick size={12} /> روی بوم، از کنار همین دکمه به نود بعدی وصل کنید
             </div>
           )}
         </div>

@@ -172,6 +172,9 @@ func (e *Engine) compile() error {
 			}
 		}
 	}
+	if err := e.addButtonTriggers(); err != nil {
+		return err
+	}
 
 	e.useState = b.state
 	if e.useState {
@@ -330,6 +333,15 @@ func (e *Engine) handle(ctx context.Context, u map[string]any) *sync.WaitGroup {
 		x.bg = bg
 		x.Results[t.spec.ID] = data
 		e.run(x, t.next[Main])
+		// A button flow that did not answer the press itself gets a silent
+		// answer, so the button stops showing its loading state.
+		if _, isButton := t.trigger.(*buttonTrigger); isButton && !x.callbackAnswered && e.tg != nil {
+			if id := x.Callback()["id"]; id != nil {
+				if _, err := e.tg.Call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": id}); err != nil {
+					e.log.Warn("auto answerCallbackQuery", "err", err)
+				}
+			}
+		}
 		// State changes made by one flow are visible to the next trigger.
 		if st, ok := x.Env["state"]; ok {
 			base["state"] = st

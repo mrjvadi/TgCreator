@@ -13,6 +13,9 @@ func TestEveryNodeHasBuilderMeta(t *testing.T) {
 	cats := map[string]bool{"trigger": true, "telegram": true, "logic": true, "state": true, "redis": true, "db": true, "http": true}
 	for _, nt := range engine.NodeTypes() {
 		m := nt.Meta
+		if m.Params == nil || m.Outputs == nil {
+			t.Errorf("%s: params/outputs must be [] not null in JSON", nt.Name)
+		}
 		if m.Label == "" || m.Summary == "" || m.Icon == "" || !cats[m.Category] {
 			t.Errorf("%s: missing label/summary/icon or unknown category %q", nt.Name, m.Category)
 		}

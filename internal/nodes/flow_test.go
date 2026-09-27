@@ -355,3 +355,79 @@ func TestDelayDoesNotBlockChat(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func callback(data string, msgID float64) map[string]any {
+	return map[string]any{
+		"update_id": 9.0,
+		"callback_query": map[string]any{
+			"id": "cb-" + data, "data": data,
+			"from":    map[string]any{"id": 5.0, "first_name": "Sara"},
+			"message": map[string]any{"message_id": msgID, "chat": map[string]any{"id": 5.0, "type": "private"}},
+		},
+	}
+}
+
+// Connections that start from an inline button run when it is pressed.
+func TestButtonOutputs(t *testing.T) {
+	e, fake := setup(t, `{
+	  "name": "t",
+	  "nodes": [
+	    {"id": "start", "type": "trigger.command", "params": {"commands": ["start"]}},
+	    {"id": "menu", "type": "telegram.send_message", "params": {"text": "menu",
+	      "buttons": [[{"text": "About", "callback_data": "menu.1"}, {"text": "Buy", "callback_data": "buy:{{ from.id }}"}], [{"text": "Site", "url": "https://x"}]]}},
+	    {"id": "about", "type": "telegram.edit_message", "params": {"text": "about us"}},
+	    {"id": "buy", "type": "telegram.answer_callback", "params": {"text": "bought {{ data }}"}},
+	    {"id": "after", "type": "logic.log", "params": {"message": "sent"}}
+	  ],
+	  "connections": {
+	    "start": {"main": ["menu"]},
+	    "menu": {"main": ["after"], "btn:menu.1": ["about"], "btn:buy:{{ from.id }}": ["buy"]}
+	  }
+	}`)
+	ctx := context.Background()
+
+	e.HandleUpdate(ctx, msgUpdate("private", 5, "/start"))
+	if got := strings.Join(fake.methods(), ","); got != "sendMessage" {
+		t.Fatalf("sending the menu must not run button branches: %s", got)
+	}
+
+	e.HandleUpdate(ctx, callback("menu.1", 777))
+	e.HandleUpdate(ctx, callback("buy:5", 777))
+	e.HandleUpdate(ctx, callback("other", 777))
+	got := strings.Join(fake.methods(), ",")
+	want := "sendMessage,editMessageText,answerCallbackQuery,answerCallbackQuery"
+	if got != want {
+		t.Fatalf("calls = %s\nwant    %s", got, want)
+	}
+	edit := fake.calls[1].Params
+	if edit["text"] != "about us" || edit["message_id"] != 777.0 {
+		t.Errorf("edit params = %#v", edit)
+	}
+	if auto := fake.calls[2].Params; auto["callback_query_id"] != "cb-menu.1" || auto["text"] != nil {
+		t.Errorf("about flow should get a silent automatic answer: %#v", auto)
+	}
+	if own := fake.calls[3].Params; own["callback_query_id"] != "cb-buy:5" || own["text"] != "bought buy:5" {
+		t.Errorf("buy flow answers itself once, no automatic answer: %#v", own)
+	}
+
+	if ups := e.AllowedUpdates(); strings.Join(ups, ",") != "callback_query,message" {
+		t.Errorf("allowed updates = %v", ups)
+	}
+}
+
+func TestCheckButtonOutputs(t *testing.T) {
+	wf, _ := workflow.Parse([]byte(`{"name":"t","nodes":[
+	  {"id":"s","type":"trigger.command","params":{"commands":["start"]}},
+	  {"id":"m","type":"telegram.send_message","params":{"text":"x","buttons":[[{"text":"A","callback_data":"a"}]]}},
+	  {"id":"n","type":"logic.log","params":{"message":"x"}},
+	  {"id":"o","type":"logic.log","params":{"message":"y"}}],
+	  "connections":{"s":{"main":["m"]},"m":{"btn:a":["n"],"btn:gone":["o"]},"n":{"btn:z":["o"]}}}`))
+	var msgs []string
+	for _, is := range engine.Check(wf) {
+		msgs = append(msgs, is.Level+"|"+is.Node+"|"+is.Message)
+	}
+	all := strings.Join(msgs, "\n")
+	if !strings.Contains(all, `warning|m|دکمه‌ای با callback_data "gone"`) || !strings.Contains(all, `error|n|خروجی دکمهٔ "z"`) || strings.Contains(all, `"a"`) {
+		t.Fatalf("issues:\n%s", all)
+	}
+}
