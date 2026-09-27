@@ -1,0 +1,3 @@
+web/dist/** linguist-generated=true -diff
+web/package-lock.json linguist-generated=true
+internal/tgsim/botapi.json linguist-generated=true -diff

@@ -63,12 +63,13 @@ type Call struct {
 
 // Event is one line of the human-readable transcript.
 type Event struct {
-	At     time.Time
-	ChatID int64
-	Chat   string
-	Who    string
-	Text   string
-	Kind   string // user, bot, action, error, filtered
+	Seq    int       `json:"seq"`
+	At     time.Time `json:"at"`
+	ChatID int64     `json:"chat_id"`
+	Chat   string    `json:"chat"`
+	Who    string    `json:"who"`
+	Text   string    `json:"text"`
+	Kind   string    `json:"kind"` // user, bot, action, error, filtered, blocked, note, log
 }
 
 type query struct {
@@ -116,6 +117,11 @@ type Sim struct {
 	Violations []string
 	Calls      []Call
 	Events     []Event
+
+	notifyMu sync.Mutex
+	notified []Event
+	notifyCh chan struct{}
+	onEvent  func(Event)
 }
 
 type webhookCfg struct {
@@ -154,6 +160,13 @@ func New(botUsername string) *Sim {
 func (s *Sim) Close() {
 	s.srv.CloseClientConnections()
 	s.srv.Close()
+	s.mu.Lock()
+	if s.notifyCh != nil {
+		close(s.notifyCh)
+		s.notifyCh = nil
+		s.onEvent = nil
+	}
+	s.mu.Unlock()
 }
 
 // ---- world setup ----
@@ -525,7 +538,7 @@ func (s *Sim) APIErrors() []Call {
 func (s *Sim) Note(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Events = append(s.Events, Event{At: time.Now(), Text: text, Kind: "note"})
+	s.addEvent(Event{At: time.Now(), Text: text, Kind: "note"})
 }
 
 // ---- internals ----
@@ -553,14 +566,14 @@ func (s *Sim) event(chat *Chat, who, text, kind string) {
 	if chat.Type == "private" {
 		label = "💬 " + chat.Title
 	}
-	s.Events = append(s.Events, Event{At: time.Now(), ChatID: chat.ID, Chat: label, Who: who, Text: text, Kind: kind})
+	s.addEvent(Event{At: time.Now(), ChatID: chat.ID, Chat: label, Who: who, Text: text, Kind: kind})
 }
 
 func (s *Sim) push(kind string, payload map[string]any) {
 	s.nextUpdate++
 	u := map[string]any{"update_id": float64(s.nextUpdate), kind: payload}
 	if s.allowed != nil && !s.isAllowed(u) || s.allowed == nil && defaultExcluded[kind] {
-		s.Events = append(s.Events, Event{At: time.Now(), Kind: "filtered",
+		s.addEvent(Event{At: time.Now(), Kind: "filtered",
 			Text: kind + " not delivered: the bot did not ask for it in allowed_updates"})
 		return
 	}
@@ -715,7 +728,7 @@ func (s *Sim) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c := Call{Method: method, Params: typed}
 		if aerr != nil {
 			c.Error = aerr.desc
-			s.Events = append(s.Events, Event{At: time.Now(), Kind: "error", Text: method + " → " + aerr.desc, ChatID: chatIDOf(typed)})
+			s.addEvent(Event{At: time.Now(), Kind: "error", Text: method + " → " + aerr.desc, ChatID: chatIDOf(typed)})
 		}
 		s.Calls = append(s.Calls, c)
 		s.mu.Unlock()
@@ -831,3 +844,56 @@ func (s *Sim) getUpdates(ctx context.Context, p map[string]any) (any, *apiError)
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// addEvent records a transcript event. Called with s.mu held.
+func (s *Sim) addEvent(e Event) {
+	e.Seq = len(s.Events) + 1
+	s.Events = append(s.Events, e)
+	if s.onEvent != nil {
+		s.notifyMu.Lock()
+		s.notified = append(s.notified, e)
+		s.notifyMu.Unlock()
+		select {
+		case s.notifyCh <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// OnEvent calls fn, in order and outside the simulator lock, for every
+// event recorded from now on (live views).
+func (s *Sim) OnEvent(fn func(Event)) {
+	s.mu.Lock()
+	s.onEvent = fn
+	s.notifyCh = make(chan struct{}, 1)
+	ch := s.notifyCh
+	s.mu.Unlock()
+	go func() {
+		for range ch {
+			s.notifyMu.Lock()
+			batch := s.notified
+			s.notified = nil
+			s.notifyMu.Unlock()
+			for _, e := range batch {
+				fn(e)
+			}
+		}
+	}()
+}
+
+// Log adds a runtime log line (node failures...) to the transcript.
+func (s *Sim) Log(chatID int64, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addEvent(Event{At: time.Now(), ChatID: chatID, Kind: "log", Text: text})
+}
+
+// EventsSince returns events with Seq > after.
+func (s *Sim) EventsSince(after int) []Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if after < 0 || after >= len(s.Events) {
+		return nil
+	}
+	return append([]Event(nil), s.Events[after:]...)
+}

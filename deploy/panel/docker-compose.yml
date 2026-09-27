@@ -1,0 +1,55 @@
+# TgCreator panel: visual builder + live test chat over Centrifugo.
+#   cp .env.example .env   # set the secrets
+#   docker compose up -d --build
+#   open http://localhost:8090
+services:
+  panel:
+    build:
+      context: ../..
+    image: tgcreator:latest
+    restart: unless-stopped
+    command: ["panel", "-addr", ":8090"]
+    ports:
+      - "8090:8090"
+    environment:
+      TGC_PANEL_PASSWORD: "${PANEL_PASSWORD:-}"
+      TGC_CENTRIFUGO_API_URL: "http://centrifugo:8000/api"
+      TGC_CENTRIFUGO_API_KEY: "${CENTRIFUGO_API_KEY:?set CENTRIFUGO_API_KEY in .env}"
+      TGC_CENTRIFUGO_SECRET: "${CENTRIFUGO_SECRET:?set CENTRIFUGO_SECRET in .env}"
+      # The address browsers use to reach Centrifugo.
+      TGC_CENTRIFUGO_WS_URL: "${CENTRIFUGO_PUBLIC_WS:-ws://localhost:8000/connection/websocket}"
+      # Database used when testing workflows that need one (Redis is in-memory).
+      TGC_TEST_DB_MAIN_DSN: "postgres://tgc:tgc@testdb:5432/test?sslmode=disable"
+    depends_on:
+      centrifugo:
+        condition: service_started
+      testdb:
+        condition: service_healthy
+
+  centrifugo:
+    image: centrifugo/centrifugo:v6
+    restart: unless-stopped
+    command: ["centrifugo", "-c", "/centrifugo/config.json"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../centrifugo/config.json:/centrifugo/config.json:ro
+    environment:
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: "${CENTRIFUGO_SECRET}"
+      CENTRIFUGO_HTTP_API_KEY: "${CENTRIFUGO_API_KEY}"
+      CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: '["${PANEL_ORIGIN:-http://localhost:8090}"]'
+
+  testdb:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tgc
+      POSTGRES_PASSWORD: tgc
+      POSTGRES_DB: test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgc -d test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

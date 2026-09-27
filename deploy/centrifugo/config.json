@@ -1,0 +1,10 @@
+{
+  "channel": {
+    "namespaces": [
+      {
+        "name": "test",
+        "history_size": 0
+      }
+    ]
+  }
+}

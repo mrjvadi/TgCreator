@@ -27,6 +27,63 @@
 - **تولید docker-compose**: فقط سرویس‌هایی که workflow واقعاً استفاده می‌کند در آن قرار می‌گیرند.
 - **حالت کاربر (state)**: برای گفت‌وگوهای چندمرحله‌ای (مثلاً «نظرت را بفرست»)، در حافظه یا Redis.
 
+## پنل ساخت (وب)
+
+پنل با **React + TypeScript** (در `web/`) ساخته شده است. سرور آن به **Go** نوشته شده و بخشی از همین برنامه است (`tgcreator panel`). ارتباط زنده با مرورگر از طریق **Centrifugo** (WebSocket) انجام می‌شود.
+
+- **بوم drag & drop:** نودها را از فهرست بکشید و خروجی‌ها را به هم وصل کنید. هر نود یک خروجی «خطا» هم دارد. خروجی‌های `true`/`false`، حالت‌های switch و `item`/`done` حلقه جدا نمایش داده می‌شوند.
+- **فرم تنظیمات هر نود** خودکار از روی توضیحات نودها ساخته می‌شود:
+  - ویرایشگر دکمه‌های شیشه‌ای و کیبورد
+  - انتخاب‌گر متغیرها، مثل `{{ from.first_name }}`
+  - ویرایشگر شرط، SQL و JSON
+- **همهٔ ۱۸۵ متد Bot API:** فرم هر متد مستقیم از مشخصات رسمی تلگرام ساخته می‌شود. «پارامترهای بیشتر تلگرام» هم برای هر نود ارسال در دسترس است.
+- **اعتبارسنجی زنده:** با هر تغییر، workflow روی سرور بررسی می‌شود و همهٔ خطاها و هشدارها روی نود مربوط نمایش داده می‌شوند.
+- **▶ تست زنده بدون توکن:** workflow روی ران‌تایم واقعی و در یک تلگرام شبیه‌سازی‌شده اجرا می‌شود و رویدادها از طریق Centrifugo به مرورگر می‌رسند.
+  - چت‌ها: پیوی شما، پیوی کاربر تست، گروه و کانال.
+  - می‌توانید پیام بفرستید، دکمه بزنید، ریپلای کنید، شماره بفرستید و inline query امتحان کنید.
+  - Redis برای تست در حافظه ساخته می‌شود و به داده‌های واقعی دست نمی‌زند. برای workflowهایی که دیتابیس دارند، `TGC_TEST_DB_<NAME>_DSN` را به پنل بدهید.
+- **امکانات دیگر:**
+  - باز کردن نمونه‌ها و فایل‌ها
+  - مرتب‌سازی خودکار نودها
+  - Undo/Redo با Ctrl+Z
+  - ذخیرهٔ خودکار پیش‌نویس در مرورگر
+  - خروجی `workflow.json` و `docker-compose.yml`
+
+### اجرای پنل با Docker
+
+```bash
+cd deploy/panel
+cp .env.example .env     # CENTRIFUGO_SECRET و CENTRIFUGO_API_KEY را عوض کنید
+docker compose up -d --build
+# http://localhost:8090
+```
+
+### اجرای پنل بدون Docker
+
+```bash
+# Centrifugo v6
+CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY=secret CENTRIFUGO_HTTP_API_KEY=apikey \
+CENTRIFUGO_CLIENT_ALLOWED_ORIGINS='["http://localhost:8090"]' \
+  centrifugo -c deploy/centrifugo/config.json
+
+# پنل
+TGC_CENTRIFUGO_API_URL=http://localhost:8000/api TGC_CENTRIFUGO_API_KEY=apikey \
+TGC_CENTRIFUGO_SECRET=secret TGC_CENTRIFUGO_WS_URL=ws://localhost:8000/connection/websocket \
+  go run ./cmd/tgcreator panel
+```
+
+| متغیر محیطی | کار |
+|---|---|
+| `TGC_CENTRIFUGO_API_URL`، `TGC_CENTRIFUGO_API_KEY` | انتشار رویدادها از سرور با HTTP API سنتریفیوگو |
+| `TGC_CENTRIFUGO_SECRET` | امضای JWT اتصال و اشتراک (همان `client.token.hmac_secret_key`) |
+| `TGC_CENTRIFUGO_WS_URL` | آدرس WebSocket که مرورگر به آن وصل می‌شود |
+| `TGC_PANEL_PASSWORD` | رمز Basic Auth برای کل پنل (اختیاری) |
+| `TGC_TEST_DB_<NAME>_DSN` | دیتابیس آزمایشی برای تست workflowهایی که دیتابیس دارند |
+
+بدون Centrifugo هم پنل کار می‌کند و تست زنده به polling برمی‌گردد.
+
+**توسعهٔ رابط کاربری:** در پوشهٔ `web/` دستور `npm ci && npm run dev` را اجرا کنید (Vite درخواست‌های `/api` را به پنل روی پورت 8090 می‌فرستد). با `npm run build` خروجی در `web/dist` ساخته می‌شود و داخل فایل اجرایی Go قرار می‌گیرد، پس برای اجرای پنل به Node نیازی نیست.
+
 ## شروع سریع
 
 ```bash
@@ -53,7 +110,8 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 | `tgcreator run -w wf.json` | اجرای ربات |
 | `tgcreator validate -w wf.json` | بررسی فایل و نمایش سرویس‌ها و آپدیت‌های لازم |
 | `tgcreator compose -w wf.json [-o file] [--build dir] [--image img]` | تولید docker-compose |
-| `tgcreator nodes` | فهرست همهٔ نودها (برای ساخت پالت در وب) |
+| `tgcreator nodes [-json]` | فهرست همهٔ نودها با برچسب‌ها و پارامترها |
+| `tgcreator panel [-addr :8090]` | اجرای پنل ساخت |
 
 ## فرمت workflow.json
 

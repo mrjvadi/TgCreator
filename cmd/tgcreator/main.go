@@ -5,10 +5,12 @@
 //	tgcreator validate -w workflow.json   check the file, print what it needs
 //	tgcreator compose  -w workflow.json   write a docker-compose.yml with only needed services
 //	tgcreator nodes                       list available node types
+//	tgcreator panel                       run the visual builder (web panel)
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -21,6 +23,8 @@ import (
 	"github.com/mrjvadi/tgcreator/internal/compose"
 	"github.com/mrjvadi/tgcreator/internal/engine"
 	_ "github.com/mrjvadi/tgcreator/internal/nodes"
+	"github.com/mrjvadi/tgcreator/internal/panel"
+	"github.com/mrjvadi/tgcreator/internal/realtime"
 	"github.com/mrjvadi/tgcreator/internal/workflow"
 )
 
@@ -38,7 +42,9 @@ func main() {
 	case "compose":
 		err = cmdCompose(os.Args[2:])
 	case "nodes":
-		cmdNodes()
+		cmdNodes(os.Args[2:])
+	case "panel":
+		err = cmdPanel(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -59,7 +65,8 @@ Usage:
   tgcreator run      -w workflow.json
   tgcreator validate -w workflow.json
   tgcreator compose  -w workflow.json [-o docker-compose.yml] [--build .] [--image tgcreator:latest]
-  tgcreator nodes
+  tgcreator nodes [-json]
+  tgcreator panel    [-addr :8090]
 `)
 }
 
@@ -161,7 +168,16 @@ func cmdCompose(args []string) error {
 	return nil
 }
 
-func cmdNodes() {
+func cmdNodes(args []string) {
+	fs := flag.NewFlagSet("nodes", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print the full catalog (labels, params) as JSON")
+	_ = fs.Parse(args)
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(engine.NodeTypes())
+		return
+	}
 	for _, t := range engine.NodeTypes() {
 		name := t.Name
 		if strings.HasSuffix(name, ".") {
@@ -193,4 +209,25 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func cmdPanel(args []string) error {
+	fs := flag.NewFlagSet("panel", flag.ExitOnError)
+	addr := fs.String("addr", envOr("TGC_PANEL_ADDR", ":8090"), "listen address")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	log := newLogger("")
+	srv := panel.New(panel.Config{
+		Password: os.Getenv("TGC_PANEL_PASSWORD"),
+		Realtime: realtime.Config{
+			APIURL: os.Getenv("TGC_CENTRIFUGO_API_URL"),
+			APIKey: os.Getenv("TGC_CENTRIFUGO_API_KEY"),
+			Secret: os.Getenv("TGC_CENTRIFUGO_SECRET"),
+			WSURL:  os.Getenv("TGC_CENTRIFUGO_WS_URL"),
+		},
+	}, log)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return srv.ListenAndServe(ctx, *addr)
 }
