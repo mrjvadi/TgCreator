@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WorkflowRest } from "../convert";
 import type { Database as Db, Json } from "../types";
 import { Switch } from "./Inspector";
+import XUIPanels from "./XUIPanels";
 
 type Tab = "bot" | "runtime" | "services" | "vars";
 
@@ -33,7 +34,7 @@ function Row({ label, help, children }: { label: string; help?: string; children
 const tabs: [Tab, string, typeof Bot][] = [
   ["bot", "ربات", Bot],
   ["runtime", "اجرا و کارایی", Activity],
-  ["services", "Redis و دیتابیس", Database],
+  ["services", "سرویس‌ها", Database],
   ["vars", "متغیرها", Variable],
 ];
 
@@ -226,11 +227,14 @@ export default function SettingsDialog({ value, onChange, onClose }: { value: Wo
                 >
                   <Plus size={14} /> افزودن دیتابیس
                 </button>
+                <XUIPanels value={svc.xui ?? {}} onChange={(x) => onChange({ ...wf, services: { ...svc, xui: Object.keys(x).length ? x : undefined } })} />
               </>
             )}
             {tab === "vars" && (
               <>
-                <p className="muted">در نودها با <code dir="ltr">vars.name</code> در دسترس‌اند. عدد، true/false و JSON خودکار تشخیص داده می‌شوند.</p>
+                <p className="muted">
+                  در نودها با <code dir="ltr">vars.name</code> در دسترس‌اند. عدد، true/false و JSON خودکار تشخیص داده می‌شوند.
+                </p>
                 <div className="kv">
                   {vars.map(([k, v], i) => (
                     <div key={i} className="kv-row">

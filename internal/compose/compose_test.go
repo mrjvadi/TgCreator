@@ -18,7 +18,7 @@ func TestOnlyRequiredServices(t *testing.T) {
 			t.Errorf("unexpected %q in:\n%s", s, yml)
 		}
 	}
-	if !strings.Contains(yml, `TAGS: "no_redis no_postgres no_mysql"`) {
+	if !strings.Contains(yml, `TAGS: "no_redis no_xui no_postgres no_mysql"`) {
 		t.Errorf("expected minimal build tags:\n%s", yml)
 	}
 }
@@ -55,5 +55,23 @@ func TestMissingDatabaseConfig(t *testing.T) {
 	_, err := Generate(&workflow.Workflow{}, []string{"db:main"}, Options{})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestXUIPanelIsExternal(t *testing.T) {
+	wf := &workflow.Workflow{Name: "x", Services: workflow.Services{XUI: map[string]workflow.XUIPanel{
+		"main": {URL: "${XUI_URL:-https://p.example.com/x/}", Username: "admin", Password: "${XUI_PASSWORD}"},
+	}}}
+	yml, err := Generate(wf, []string{"xui:main"}, Options{BuildContext: "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{`XUI_PASSWORD: "${XUI_PASSWORD:-}"`, `XUI_URL: "${XUI_URL:-}"`, `TAGS: "no_redis no_postgres no_mysql"`} {
+		if !strings.Contains(yml, s) {
+			t.Errorf("missing %q in:\n%s", s, yml)
+		}
+	}
+	if strings.Contains(yml, "depends_on") {
+		t.Errorf("a panel needs no container:\n%s", yml)
 	}
 }

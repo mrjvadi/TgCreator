@@ -24,6 +24,7 @@
   - در زمان build: ماژول‌های استفاده‌نشده با build tag از باینری حذف می‌شوند (۲۱MB در مقابل ۹.۷MB).
 - **پشتیبانی از همهٔ قابلیت‌های تلگرام**: هر پارامتری که نود نشناسد مستقیم به Bot API فرستاده می‌شود. با `tg.<method>` یا `telegram.api` هم می‌توان **هر متد** Bot API را صدا زد (حتی متدهای آینده): متن، عکس، ویدیو، صدا، فایل، استیکر، آلبوم، نظرسنجی، بن، محدودسازی، پین، inline mode، پرداخت و…
 - **Redis و دیتابیس**: Redis، Postgres، MySQL و SQLite (اختیاری) پشتیبانی می‌شوند و migrationها هنگام شروع اجرا می‌شوند.
+- **پنل‌های X-UI (VPN)**: ساخت، تمدید، حذف و استعلام کاربر در 3x-ui و x-ui، همراه با لینک کانفیگ و ساب و تاریخ شمسی. برای ربات فروش VPN (بخش [پنل‌های X-UI](#پنل‌های-x-ui-فروش-و-مدیریت-vpn)).
 - **تولید docker-compose**: فقط سرویس‌هایی که workflow واقعاً استفاده می‌کند در آن قرار می‌گیرند.
 - **حالت کاربر (state)**: برای گفت‌وگوهای چندمرحله‌ای (مثلاً «نظرت را بفرست»)، در حافظه یا Redis.
 
@@ -140,6 +141,9 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
     "redis": { "url": "${REDIS_URL}" },
     "databases": {
       "main": { "driver": "postgres", "dsn": "${DATABASE_URL}", "migrations": ["CREATE TABLE IF NOT EXISTS ..."] }
+    },
+    "xui": {                          // پنل‌های X-UI برای نودهای xui.*
+      "main": { "type": "3x-ui", "url": "https://panel.example.com:2053/secret/", "username": "admin", "password": "${XUI_PASSWORD}" }
     }
   },
   "variables": { "site": "https://example.com" },   // در عبارت‌ها: vars.site
@@ -218,6 +222,10 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 | `redis.get/set/del/incr/command` | main | `redis.incr` با `ttl` برای ضد flood مناسب است |
 | `db.query` / `db.exec` | main | `db` (پیش‌فرض `main`)، `query`، `args`، `single` |
 | `http.request` | main / error | فراخوانی API بیرونی |
+| `xui.add_client` | main / exists | ساخت کاربر VPN در پنل X-UI؛ بخش بعدی را ببینید |
+| `xui.get_client` / `update_client` / `delete_client` | main / notfound | اطلاعات، تمدید/ویرایش و حذف کاربر با ایمیل |
+| `xui.find_clients` | main / notfound | کاربرهای یک آیدی تلگرام یا یک عبارت |
+| `xui.list_inbounds`، `xui.onlines`، `xui.api` | main | اینباندها، کاربران آنلاین، و هر مسیر API پنل |
 
 راهنماهای مشترک نودهای ارسال و ویرایش:
 
@@ -228,6 +236,61 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 - `chat_id` اگر داده نشود، چت فعلی در نظر گرفته می‌شود.
 
 > **امنیت SQL:** مقادیر را همیشه از طریق `args` بدهید (`$1` در Postgres و `?` در MySQL/SQLite)، نه با `{{ }}` داخل `query`. متن `query` ثابت است و فقط یک بار prepare می‌شود.
+
+### پنل‌های X-UI (فروش و مدیریت VPN)
+
+نودهای `xui.*` به پنل‌های **3x-ui** (MHSanaei) و **x-ui** (alireza0) وصل می‌شوند. سازگاری با هر دو از روی کد منبع خود پنل‌ها بررسی شده است (3x-ui نسخهٔ 2.9 و x-ui نسخهٔ 1.12).
+
+**اتصال:** در پنل ساخت، از مسیر «تنظیمات ← سرویس‌ها ← افزودن پنل X-UI» اضافه می‌شود. معادل آن در فایل workflow:
+
+```jsonc
+"services": {
+  "xui": {
+    "main": {
+      "type": "3x-ui",                  // یا "x-ui" (علیرضا)
+      "url": "https://panel.example.com:2053/secret/",   // همراه با مسیر مخفی پنل
+      "username": "admin",
+      "password": "${XUI_PASSWORD}",
+      "address": "vpn.example.com",     // اختیاری: آدرس سرور در لینک کانفیگ (پیش‌فرض: دامنهٔ پنل)
+      "sub_url": "",                    // اختیاری: پایهٔ لینک ساب؛ خالی = از تنظیمات خود پنل
+      "totp_secret": "",                // اگر ورود دومرحله‌ای پنل روشن است
+      "insecure_tls": false             // برای گواهی self-signed
+    }
+  }
+}
+```
+
+- **نشست:** ربات فقط یک بار لاگین می‌کند و همهٔ درخواست‌ها از همان نشست استفاده می‌کنند. اگر پنل ری‌استارت شود یا نشست منقضی شود، خودش دوباره لاگین می‌کند.
+- **دکمهٔ «تست اتصال»:** لاگین را امتحان می‌کند و لیست اینباندها را با شماره (ID) نشان می‌دهد.
+- **بازنویسی با متغیر محیطی:** `TGC_XUI_<NAME>_URL`، `_USERNAME`، `_PASSWORD` و `_TOTP` مقادیر فایل را بازنویسی می‌کنند.
+
+**خروجی نودهای کاربر** (مثلاً `{{ nodes.trial.sub_link }}`):
+
+| فیلد | توضیح |
+|---|---|
+| `link` / `links` | لینک کانفیگ (vless، vmess، trojan، ss، hysteria2)، مثل خروجی خود پنل؛ شامل Reality، TLS، WS، gRPC، xhttp و external proxy |
+| `sub_link` | لینک اشتراک |
+| `used_gb` / `total_gb` / `remaining_gb` | مصرف، حجم کل و باقی‌مانده (نامحدود = `unlimited: true`) |
+| `days_left` / `expiry_date` / `expiry_jalali` | روزهای باقی‌مانده، تاریخ میلادی و **تاریخ شمسی** انقضا |
+| `active` / `expired` / `depleted` / `enable` | وضعیت کاربر |
+| `email`، `id`، `sub_id`، `inbound_id`، `protocol`، `limit_ip`، `tg_id`، `comment` | مشخصات کاربر |
+
+**رفتار تمدید (`xui.update_client`):**
+- `add_days` روزها را به انتهای اعتبار فعلی اضافه می‌کند. اگر اشتراک منقضی شده باشد، از امروز حساب می‌شود.
+- اگر مدت از اولین اتصال شروع می‌شود و کاربر هنوز وصل نشده، `add_days` همان مدت را طولانی‌تر می‌کند.
+- `set_gb` و `reset_traffic` برای شارژ دوباره هستند.
+- کاربری که پنل غیرفعالش کرده، با تمدید خودکار دوباره فعال می‌شود.
+
+**در «تست ربات» پنل ساخت:**
+- هیچ کاربری روی پنل واقعی ساخته نمی‌شود. یک پنل 3x-ui در حافظه جای آن را می‌گیرد، با اینباند ۱ (VLESS Reality) و اینباند ۲ (VMess WS).
+- برای تست با یک پنل آزمایشی واقعی، `TGC_TEST_XUI_<NAME>_URL`، `_USERNAME` و `_PASSWORD` را به پنل ساخت بدهید.
+
+**نمونهٔ کامل: `examples/vpn-shop`**
+- اکانت تست رایگان (یک بار برای هر کاربر).
+- خرید و تمدید با ستارهٔ تلگرام.
+- «اکانت‌های من» با مصرف و تاریخ شمسی.
+- دستورات مدیر: `/renew <email> <days> [gb]`، `/del <email>` و `/online`.
+- سناریوی این نمونه با ۶ کاربر در `internal/tgsim/vpn_scenario_test.go` تست می‌شود.
 
 ## کارایی
 
@@ -262,6 +325,7 @@ BOT_TOKEN=123:abc ./tgcreator run -w examples/menu-bot/workflow.json
 | tag | اثر |
 |---|---|
 | `no_redis` | حذف ماژول Redis |
+| `no_xui` | حذف نودهای پنل X-UI |
 | `no_postgres` | حذف درایور Postgres |
 | `no_mysql` | حذف درایور MySQL |
 | `sqlite` | اضافه کردن SQLite (به‌طور پیش‌فرض خاموش است) |

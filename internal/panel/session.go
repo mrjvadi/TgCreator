@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/mrjvadi/tgcreator/internal/tg"
 	"github.com/mrjvadi/tgcreator/internal/tgsim"
 	"github.com/mrjvadi/tgcreator/internal/workflow"
+	"github.com/mrjvadi/tgcreator/internal/xui/xuifake"
 )
 
 // Test world: who and where the panel user can chat as.
@@ -36,6 +38,7 @@ type session struct {
 	sim     *tgsim.Sim
 	eng     *engine.Engine
 	mini    *miniredis.Miniredis
+	panels  []*xuifake.Panel
 	cancel  context.CancelFunc
 	done    chan struct{}
 	last    atomic.Int64
@@ -81,6 +84,31 @@ func (s *Server) startSession(wf *workflow.Workflow) (*session, error) {
 			}
 			db.DSN = workflow.ExpandEnv(db.DSN)
 			wf.Services.Databases[name] = db
+		case "xui":
+			// Tests never create users on a real panel: an in-memory panel
+			// stands in unless TGC_TEST_XUI_<NAME>_URL names a test panel.
+			p := wf.Services.XUI[name]
+			env := "TGC_TEST_" + strings.TrimPrefix(workflow.XUIEnv(name), "TGC_")
+			if u := os.Getenv(env + "_URL"); u != "" {
+				p.URL, p.Username, p.Password = u, os.Getenv(env+"_USERNAME"), os.Getenv(env+"_PASSWORD")
+				p.TOTPSecret = os.Getenv(env + "_TOTP")
+			} else {
+				fake := xuifake.New(p.Type)
+				sess.panels = append(sess.panels, fake)
+				p.Address = workflow.ExpandEnv(p.Address)
+				if p.Address == "" {
+					p.Address = "vpn.example.com"
+					if u, err := url.Parse(workflow.ExpandEnv(p.URL)); err == nil && u.Hostname() != "" {
+						p.Address = u.Hostname()
+					}
+				}
+				p.Type, p.URL, p.Username, p.Password = fake.Type, fake.URL, fake.Username, fake.Password
+				p.TOTPSecret, p.APIPath, p.SubURL, p.Insecure = "", "", "", false
+			}
+			if wf.Services.XUI == nil {
+				wf.Services.XUI = map[string]workflow.XUIPanel{}
+			}
+			wf.Services.XUI[name] = p
 		}
 	}
 	if wf.Runtime.StateBackend == "redis" && sess.mini == nil {
@@ -98,6 +126,10 @@ func (s *Server) startSession(wf *workflow.Workflow) (*session, error) {
 	sim.AddChat(ChatChanel, "channel", "کانال تست", "test_channel")
 	sim.SetMember(ChatChanel, UserMe, "creator")
 	sim.SetMember(ChatChanel, sim.BotID(), "administrator", tgsim.AdminRights...)
+
+	if len(sess.panels) > 0 {
+		sim.Log(0, "پنل X-UI در این تست شبیه‌سازی شده است (اینباند ۱: VLESS Reality، اینباند ۲: VMess WS)؛ هیچ کاربری روی پنل واقعی ساخته نمی‌شود.")
+	}
 
 	logger := slog.New(&simLog{sim: sim})
 	eng, err := engine.New(wf, engine.Options{Client: tg.New(sim.Token, sim.URL), Logger: logger, OnUpdateHandled: sim.Handled})
@@ -160,6 +192,9 @@ func (sess *session) close() {
 	}
 	if sess.mini != nil {
 		sess.mini.Close()
+	}
+	for _, p := range sess.panels {
+		p.Close()
 	}
 }
 

@@ -60,7 +60,7 @@ func TestPanelAPI(t *testing.T) {
 
 	var list []struct{ ID string }
 	call(t, s, "GET", "/api/examples", nil, &list)
-	if len(list) != 4 {
+	if len(list) != 5 {
 		t.Fatalf("examples: %+v", list)
 	}
 	req := httptest.NewRequest("GET", "/api/examples/menu-bot", nil)
@@ -197,5 +197,35 @@ func TestPanelButtonMenu(t *testing.T) {
 		if e.Kind == "error" || e.Kind == "log" {
 			t.Errorf("unexpected problem: %s", e.Text)
 		}
+	}
+}
+
+// The VPN shop runs against an in-memory X-UI panel: the real one in the
+// workflow is never contacted, and links use the configured panel's host.
+func TestPanelXUISession(t *testing.T) {
+	s := New(Config{}, nil)
+	defer s.Close()
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/examples/vpn-shop", nil))
+	var sess struct{ ID, Error string }
+	if code := call(t, s, "POST", "/api/test", rec.Body.Bytes(), &sess); code != 200 {
+		t.Fatalf("start: %d %s", code, sess.Error)
+	}
+	defer call(t, s, "DELETE", "/api/test/"+sess.ID, nil, nil)
+	act := func(a map[string]any) tgsim.MsgView {
+		var res struct{ Chat tgsim.ChatSnapshot }
+		a["chat_id"] = UserMe
+		if code := call(t, s, "POST", "/api/test/"+sess.ID+"/action", a, &res); code != 200 {
+			t.Fatalf("%v: %d", a, code)
+		}
+		return res.Chat.Messages[len(res.Chat.Messages)-1]
+	}
+	menu := act(map[string]any{"type": "send", "text": "/start"})
+	got := act(map[string]any{"type": "press", "message_id": menu.ID, "button": "🎁 اکانت تست رایگان"})
+	if !strings.Contains(got.Text, "@panel.example.com:443") || !strings.Contains(got.Text, "https://sub.example.com:2096/sub/") {
+		t.Fatalf("trial = %q", got.Text)
+	}
+	if got = act(map[string]any{"type": "press", "message_id": menu.ID, "button": "📊 اکانت‌های من"}); !strings.Contains(got.Text, "trial_1001") {
+		t.Fatalf("accounts = %q", got.Text)
 	}
 }

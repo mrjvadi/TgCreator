@@ -122,6 +122,16 @@ func Check(wf *workflow.Workflow) []Issue {
 			} else if db.Driver != "postgres" && db.Driver != "mysql" && db.Driver != "sqlite" {
 				add("error", "", "درایور دیتابیس %q نامعتبر است: %q", name, db.Driver)
 			}
+		case "xui":
+			p, ok := wf.Services.XUI[name]
+			switch {
+			case !ok:
+				add("error", "", "پنل X-UI %q استفاده شده ولی در تنظیمات سرویس‌ها تعریف نشده", name)
+			case p.URL == "":
+				add("error", "", "آدرس پنل X-UI %q خالی است", name)
+			case p.Username == "" || p.Password == "":
+				add("warning", "", "نام کاربری یا رمز پنل X-UI %q خالی است (یا %s_PASSWORD)", name, workflow.XUIEnv(name))
+			}
 		}
 		if serviceProvider(kind) == nil {
 			add("error", "", "ماژول %s در این نسخه از ران‌تایم وجود ندارد", kind)

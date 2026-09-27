@@ -147,7 +147,12 @@ func cmdCompose(args []string) error {
 	if st, err := os.Stat(filepath.Join(filepath.Dir(*path), "assets")); err == nil && st.IsDir() {
 		mounts = append(mounts, "./assets:/app/assets:ro")
 	}
-	yml, err := compose.Generate(wf, e.Requirements(), compose.Options{
+	// compose needs the ${VAR} references as written, not their values here.
+	raw, err := workflow.LoadRaw(*path)
+	if err != nil {
+		return err
+	}
+	yml, err := compose.Generate(raw, e.Requirements(), compose.Options{
 		WorkflowFile: "./" + filepath.Base(*path),
 		Image:        *image,
 		BuildContext: *build,

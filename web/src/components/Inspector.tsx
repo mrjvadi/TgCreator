@@ -290,7 +290,16 @@ export function ParamField({ param: p, value, onChange, vars, nodeId }: { param:
       editor = <TextField multiline mono rows={4} value={str} placeholder={p.placeholder ?? "SELECT …"} onChange={onChange} />;
       break;
     case "number":
-      editor = <input className="input" type="number" dir="ltr" value={str} placeholder={p.default !== undefined ? String(p.default) : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))} />;
+      // A number or an expression such as {{ vars.days }}.
+      editor = (
+        <TextField
+          mono
+          value={str}
+          placeholder={p.placeholder ?? (p.default !== undefined ? String(p.default) : "")}
+          onChange={(v) => onChange(v.trim() === "" ? undefined : /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v.trim()) : v)}
+          vars={vars}
+        />
+      );
       break;
     case "bool":
       return <Switch checked={value === true} onChange={(v) => onChange(v || undefined)} label={p.label} />;

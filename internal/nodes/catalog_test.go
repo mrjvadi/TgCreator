@@ -10,7 +10,7 @@ import (
 func TestEveryNodeHasBuilderMeta(t *testing.T) {
 	editors := map[string]bool{"text": true, "textarea": true, "expr": true, "number": true, "bool": true, "select": true,
 		"tags": true, "buttons": true, "keyboard": true, "json": true, "vars": true, "sql": true, "duration": true, "file": true, "method": true}
-	cats := map[string]bool{"trigger": true, "telegram": true, "logic": true, "state": true, "redis": true, "db": true, "http": true}
+	cats := map[string]bool{"trigger": true, "telegram": true, "logic": true, "state": true, "redis": true, "db": true, "http": true, "xui": true}
 	for _, nt := range engine.NodeTypes() {
 		m := nt.Meta
 		if m.Params == nil || m.Outputs == nil {

@@ -14,6 +14,8 @@ export const outputLabels: Record<string, string> = {
   item: "هر مورد",
   done: "پایان",
   error: "خطا",
+  notfound: "پیدا نشد",
+  exists: "تکراری",
 };
 
 function OutHandle({ nodeId, id, connected, label, labelClass }: { nodeId: string; id: string; connected: boolean; label?: string; labelClass?: string }) {

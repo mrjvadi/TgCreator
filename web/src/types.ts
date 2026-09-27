@@ -13,6 +13,29 @@ export interface WorkflowNode {
   position?: [number, number];
 }
 
+export interface XUIPanel {
+  type?: string;
+  url: string;
+  username: string;
+  password: string;
+  totp_secret?: string;
+  sub_url?: string;
+  address?: string;
+  api_path?: string;
+  insecure_tls?: boolean;
+  timeout?: string;
+}
+
+export interface XUIInbound {
+  id: number;
+  remark: string;
+  protocol: string;
+  port: number;
+  enable: boolean;
+  clients: number;
+  used_gb: number;
+}
+
 export interface Database {
   driver: string;
   dsn: string;
@@ -43,7 +66,7 @@ export interface Workflow {
     health_listen?: string;
     handle_timeout?: string;
   };
-  services?: { redis?: { url: string; image?: string }; databases?: Record<string, Database> };
+  services?: { redis?: { url: string; image?: string }; databases?: Record<string, Database>; xui?: Record<string, XUIPanel> };
   variables?: Record<string, Json>;
   nodes: WorkflowNode[];
   connections: Record<string, Record<string, string[]>>;
@@ -171,5 +194,6 @@ export const categories: Record<string, { title: string; color: string }> = {
   redis: { title: "Redis", color: "var(--c-redis)" },
   db: { title: "دیتابیس", color: "var(--c-db)" },
   http: { title: "HTTP", color: "var(--c-http)" },
+  xui: { title: "پنل X-UI (VPN)", color: "var(--c-xui)" },
   other: { title: "سایر", color: "var(--muted)" },
 };

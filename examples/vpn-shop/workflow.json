@@ -1,0 +1,151 @@
+{
+  "name": "VPN shop (3x-ui)",
+  "version": 1,
+  "bot": { "token": "${BOT_TOKEN}", "parse_mode": "HTML" },
+  "services": {
+    "xui": {
+      "main": {
+        "type": "3x-ui",
+        "url": "${XUI_URL:-https://panel.example.com:2053/secret/}",
+        "username": "${XUI_USERNAME:-admin}",
+        "password": "${XUI_PASSWORD}",
+        "address": "${XUI_ADDRESS:-}"
+      }
+    }
+  },
+  "variables": {
+    "owner_id": 101,
+    "inbound": 1,
+    "trial_gb": 1,
+    "trial_days": 1,
+    "plan_gb": 50,
+    "plan_days": 30,
+    "plan_price": 100
+  },
+  "nodes": [
+    { "id": "start", "type": "trigger.command", "position": [0, 40], "params": { "commands": ["start"], "chat_types": ["private"] } },
+    {
+      "id": "menu", "type": "telegram.send_message", "name": "منوی فروشگاه", "position": [380, 0],
+      "params": {
+        "text": "سلام {{ escapeHTML(from.first_name) }} 👋\nبه فروشگاه VPN خوش آمدید. چه کاری انجام دهم؟",
+        "buttons": [
+          [{ "text": "🎁 اکانت تست رایگان", "callback_data": "menu.1" }],
+          [{ "text": "🛒 خرید اشتراک ۳۰ روزه", "callback_data": "menu.2" }],
+          [{ "text": "📊 اکانت‌های من", "callback_data": "menu.3" }]
+        ]
+      }
+    },
+
+    {
+      "id": "trial", "type": "xui.add_client", "name": "ساخت اکانت تست", "position": [820, -60],
+      "params": {
+        "inbound_id": "{{ vars.inbound }}", "email": "trial_{{ from.id }}",
+        "traffic_gb": "{{ vars.trial_gb }}", "days": "{{ vars.trial_days }}",
+        "tg_id": "{{ from.id }}", "comment": "trial {{ from.first_name }}"
+      }
+    },
+    {
+      "id": "trial_ok", "type": "telegram.send_message", "name": "تحویل اکانت تست", "position": [1260, -230],
+      "params": {
+        "text": "✅ <b>اکانت تست شما آماده است</b>\n\n📦 حجم: {{ nodes.trial.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.trial.expiry_jalali }}\n\n🔗 لینک اشتراک (v2rayNG، Streisand، Hiddify):\n<code>{{ nodes.trial.sub_link }}</code>\n\n⚡️ کانفیگ مستقیم:\n<code>{{ nodes.trial.link }}</code>"
+      }
+    },
+    {
+      "id": "trial_dup", "type": "telegram.send_message", "name": "تست تکراری", "position": [1260, -90],
+      "params": {
+        "text": "شما قبلاً اکانت تست گرفته‌اید 🙂",
+        "buttons": [[{ "text": "📊 اکانت‌های من", "callback_data": "trial_dup.1" }], [{ "text": "🛒 خرید اشتراک", "callback_data": "trial_dup.2" }]]
+      }
+    },
+    { "id": "panel_err", "type": "telegram.send_message", "name": "خطای سرور", "position": [1260, 260], "params": { "text": "❌ ارتباط با سرور برقرار نشد؛ چند دقیقه دیگر دوباره امتحان کنید." } },
+
+    {
+      "id": "invoice", "type": "tg.sendInvoice", "name": "فاکتور ستاره", "position": [820, 260],
+      "params": {
+        "chat_id": "{{ chat.id }}", "title": "اشتراک VPN ۳۰ روزه", "description": "{{ vars.plan_gb }} گیگ، {{ vars.plan_days }} روز",
+        "payload": "vpn30:{{ from.id }}", "currency": "XTR", "prices": [{ "label": "اشتراک ۳۰ روزه", "amount": "{{ vars.plan_price }}" }]
+      }
+    },
+    { "id": "on_checkout", "type": "trigger.update", "position": [0, 900], "params": { "on": ["pre_checkout_query"] } },
+    {
+      "id": "check_price", "type": "logic.if", "name": "مبلغ درست است؟", "position": [380, 900],
+      "params": { "condition": "payload.total_amount == vars.plan_price && payload.currency == 'XTR' && payload.invoice_payload startsWith 'vpn30:'" }
+    },
+    { "id": "checkout_ok", "type": "tg.answerPreCheckoutQuery", "position": [820, 840], "params": { "pre_checkout_query_id": "{{ payload.id }}", "ok": true } },
+    {
+      "id": "checkout_bad", "type": "tg.answerPreCheckoutQuery", "position": [820, 960],
+      "params": { "pre_checkout_query_id": "{{ payload.id }}", "ok": false, "error_message": "مبلغ یا سفارش نامعتبر است." }
+    },
+
+    {
+      "id": "on_paid", "type": "trigger.message", "position": [0, 560],
+      "params": { "has": ["successful_payment"], "condition": "message.successful_payment.invoice_payload startsWith 'vpn30:'" }
+    },
+    {
+      "id": "renew", "type": "xui.update_client", "name": "تمدید اشتراک", "position": [380, 560],
+      "params": { "email": "vpn_{{ from.id }}", "add_days": "{{ vars.plan_days }}", "set_gb": "{{ vars.plan_gb }}", "reset_traffic": true }
+    },
+    {
+      "id": "renew_ok", "type": "telegram.send_message", "name": "تمدید شد", "position": [820, 460],
+      "params": { "text": "✅ <b>اشتراک شما تمدید شد</b>\n\n📦 حجم: {{ nodes.renew.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.renew.expiry_jalali }}\n\n🔗 <code>{{ nodes.renew.sub_link }}</code>" }
+    },
+    {
+      "id": "create", "type": "xui.add_client", "name": "ساخت اشتراک", "position": [820, 640],
+      "params": {
+        "inbound_id": "{{ vars.inbound }}", "email": "vpn_{{ from.id }}", "traffic_gb": "{{ vars.plan_gb }}", "days": "{{ vars.plan_days }}",
+        "limit_ip": 2, "flow": "xtls-rprx-vision", "tg_id": "{{ from.id }}", "comment": "{{ from.first_name }}"
+      }
+    },
+    {
+      "id": "create_ok", "type": "telegram.send_message", "name": "تحویل اشتراک", "position": [1260, 640],
+      "params": { "text": "✅ <b>اشتراک شما فعال شد</b>\n\n📦 حجم: {{ nodes.create.total_gb }} گیگ\n⏳ اعتبار تا: {{ nodes.create.expiry_jalali }}\n👥 حداکثر {{ nodes.create.limit_ip }} دستگاه\n\n🔗 لینک اشتراک:\n<code>{{ nodes.create.sub_link }}</code>" }
+    },
+
+    { "id": "mine", "type": "xui.find_clients", "name": "اکانت‌های کاربر", "position": [820, -420], "params": { "tg_id": "{{ from.id }}" } },
+    {
+      "id": "mine_list", "type": "telegram.send_message", "name": "نمایش اکانت‌ها", "position": [1260, -560],
+      "params": {
+        "text": "📊 <b>اکانت‌های شما</b>\n\n{{ join(map(nodes.mine.clients, '👤 <code>' + #.email + '</code> ' + (#.active ? '🟢 فعال' : '🔴 غیرفعال') + '\\n📦 مصرف: ' + string(#.used_gb) + ' از ' + (#.unlimited ? 'نامحدود' : string(#.total_gb) + ' گیگ') + '\\n⏳ ' + (#.expiry_jalali != '' ? 'اعتبار تا ' + #.expiry_jalali : (#.started ? 'بدون انقضا' : 'از اولین اتصال')) + '\\n🔗 <code>' + #.sub_link + '</code>'), '\\n\\n') }}"
+      }
+    },
+    {
+      "id": "mine_none", "type": "telegram.send_message", "name": "اکانتی ندارد", "position": [1260, -420],
+      "params": { "text": "هنوز اکانتی ندارید.", "buttons": [[{ "text": "🎁 اکانت تست رایگان", "callback_data": "mine_none.1" }]] }
+    },
+
+    { "id": "renew_cmd", "type": "trigger.command", "name": "/renew (مدیر)", "position": [0, 1140], "params": { "commands": ["renew"], "chat_types": ["private"], "condition": "from.id == vars.owner_id && len(args) >= 2" } },
+    {
+      "id": "admin_renew", "type": "xui.update_client", "name": "تمدید دستی", "position": [380, 1140],
+      "params": { "email": "{{ args[0] }}", "add_days": "{{ args[1] }}", "add_gb": "{{ args[2] ?? 0 }}" }
+    },
+    { "id": "admin_ok", "type": "telegram.send_message", "position": [820, 1100], "params": { "text": "✅ <code>{{ nodes.admin_renew.email }}</code> تمدید شد؛ اعتبار تا {{ nodes.admin_renew.expiry_jalali }} — حجم {{ nodes.admin_renew.unlimited ? 'نامحدود' : string(nodes.admin_renew.total_gb) + ' گیگ' }}" } },
+    { "id": "admin_nf", "type": "telegram.send_message", "position": [820, 1240], "params": { "text": "❓ کاربر <code>{{ args[0] }}</code> در پنل نیست." } },
+
+    { "id": "del_cmd", "type": "trigger.command", "name": "/del (مدیر)", "position": [0, 1380], "params": { "commands": ["del"], "chat_types": ["private"], "condition": "from.id == vars.owner_id && len(args) == 1" } },
+    { "id": "admin_del", "type": "xui.delete_client", "name": "حذف کاربر", "position": [380, 1380], "params": { "email": "{{ args[0] }}" } },
+    { "id": "admin_del_ok", "type": "telegram.send_message", "position": [820, 1380], "params": { "text": "🗑 <code>{{ args[0] }}</code> حذف شد." } },
+
+    { "id": "online_cmd", "type": "trigger.command", "name": "/online (مدیر)", "position": [0, 1580], "params": { "commands": ["online"], "chat_types": ["private"], "condition": "from.id == vars.owner_id" } },
+    { "id": "onlines", "type": "xui.onlines", "position": [380, 1580] },
+    { "id": "online_msg", "type": "telegram.send_message", "position": [820, 1580], "params": { "text": "🟢 {{ nodes.onlines.count }} کاربر آنلاین{{ nodes.onlines.count > 0 ? ':\\n' + join(nodes.onlines.emails, '\\n') : '' }}" } }
+  ],
+  "connections": {
+    "start": { "main": ["menu"] },
+    "menu": { "btn:menu.1": ["trial"], "btn:menu.2": ["invoice"], "btn:menu.3": ["mine"] },
+    "trial": { "main": ["trial_ok"], "exists": ["trial_dup"], "error": ["panel_err"] },
+    "trial_dup": { "btn:trial_dup.1": ["mine"], "btn:trial_dup.2": ["invoice"] },
+    "mine": { "main": ["mine_list"], "notfound": ["mine_none"], "error": ["panel_err"] },
+    "mine_none": { "btn:mine_none.1": ["trial"] },
+    "on_checkout": { "main": ["check_price"] },
+    "check_price": { "true": ["checkout_ok"], "false": ["checkout_bad"] },
+    "on_paid": { "main": ["renew"] },
+    "renew": { "main": ["renew_ok"], "notfound": ["create"], "error": ["panel_err"] },
+    "create": { "main": ["create_ok"], "error": ["panel_err"] },
+    "renew_cmd": { "main": ["admin_renew"] },
+    "admin_renew": { "main": ["admin_ok"], "notfound": ["admin_nf"] },
+    "del_cmd": { "main": ["admin_del"] },
+    "admin_del": { "main": ["admin_del_ok"], "notfound": ["admin_nf"] },
+    "online_cmd": { "main": ["onlines"] },
+    "onlines": { "main": ["online_msg"] }
+  }
+}

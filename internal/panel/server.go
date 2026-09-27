@@ -26,6 +26,7 @@ import (
 	"github.com/mrjvadi/tgcreator/internal/tg"
 	"github.com/mrjvadi/tgcreator/internal/tgsim"
 	"github.com/mrjvadi/tgcreator/internal/workflow"
+	"github.com/mrjvadi/tgcreator/internal/xui"
 	"github.com/mrjvadi/tgcreator/web"
 )
 
@@ -95,6 +96,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/examples/{id}", s.getExample)
 	s.mux.HandleFunc("POST /api/validate", s.validate)
 	s.mux.HandleFunc("POST /api/compose", s.compose)
+	s.mux.HandleFunc("POST /api/xui/check", s.xuiCheck)
 	s.mux.HandleFunc("GET /api/realtime", s.realtimeInfo)
 	s.mux.HandleFunc("POST /api/test", s.testStart)
 	s.mux.HandleFunc("POST /api/test/{id}/action", s.testAction)
@@ -251,6 +253,37 @@ func (s *Server) compose(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="docker-compose.yml"`)
 	_, _ = io.WriteString(w, yml)
+}
+
+// xuiCheck logs in to an X-UI panel from the settings dialog and lists its
+// inbounds, so users can see the connection works and pick inbound ids.
+func (s *Server) xuiCheck(w http.ResponseWriter, r *http.Request) {
+	var p workflow.XUIPanel
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&p); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	for _, f := range []*string{&p.URL, &p.Username, &p.Password, &p.TOTPSecret, &p.SubURL, &p.Address} {
+		*f = workflow.ExpandEnv(*f)
+	}
+	c, err := xui.New(p)
+	if err != nil {
+		fail(w, 422, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	ins, err := c.Inbounds(ctx)
+	if err != nil {
+		// A panel that refuses us is an answer, not a failure of this API.
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "اتصال به پنل ناموفق بود: " + err.Error()})
+		return
+	}
+	list := make([]any, len(ins))
+	for i := range ins {
+		list[i] = xui.InboundInfo(&ins[i])
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "inbounds": list, "sub_url": c.SubBase(ctx)})
 }
 
 func (s *Server) realtimeInfo(w http.ResponseWriter, _ *http.Request) {

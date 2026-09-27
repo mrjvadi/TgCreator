@@ -56,7 +56,30 @@ type Runtime struct {
 type Services struct {
 	Redis     *Redis              `json:"redis,omitempty"`
 	Databases map[string]Database `json:"databases,omitempty"`
+	// XUI are external X-UI panels (3x-ui, alireza0 x-ui) the bot manages.
+	XUI map[string]XUIPanel `json:"xui,omitempty"`
 }
+
+// XUIPanel is a connection to an X-UI panel. Fields accept ${ENV}.
+type XUIPanel struct {
+	Type     string `json:"type,omitempty"` // "3x-ui" (default) or "x-ui" (alireza0)
+	URL      string `json:"url"`            // panel address including its web base path
+	Username string `json:"username"`
+	Password string `json:"password"`
+	// TOTPSecret is the panel's two-factor secret, when 2FA is on.
+	TOTPSecret string `json:"totp_secret,omitempty"`
+	// SubURL is the subscription base (".../sub/"); read from the panel when empty.
+	SubURL string `json:"sub_url,omitempty"`
+	// Address is the server host put into config links; defaults to the panel host.
+	Address string `json:"address,omitempty"`
+	// APIPath overrides the inbounds API path for panel forks.
+	APIPath  string `json:"api_path,omitempty"`
+	Insecure bool   `json:"insecure_tls,omitempty"` // accept self-signed certificates
+	Timeout  string `json:"timeout,omitempty"`      // per request, default 15s
+}
+
+// XUITypes are the supported panel flavours.
+var XUITypes = []string{"3x-ui", "x-ui"}
 
 type Redis struct {
 	URL   string `json:"url"`
@@ -95,6 +118,30 @@ func Load(path string) (*Workflow, error) {
 	return Parse(b)
 }
 
+// LoadRaw reads a workflow without resolving ${ENV} references.
+func LoadRaw(path string) (*Workflow, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var wf Workflow
+	if err := json.Unmarshal(b, &wf); err != nil {
+		return nil, fmt.Errorf("parse workflow: %w", err)
+	}
+	return &wf, nil
+}
+
+// EnvRefs lists the variables a value references ($VAR, ${VAR}, ${VAR:-x}).
+func EnvRefs(s string) []string {
+	var out []string
+	os.Expand(s, func(key string) string {
+		name, _, _ := strings.Cut(key, ":-")
+		out = append(out, name)
+		return ""
+	})
+	return out
+}
+
 func Parse(b []byte) (*Workflow, error) {
 	var wf Workflow
 	if err := json.Unmarshal(b, &wf); err != nil {
@@ -126,11 +173,31 @@ func (wf *Workflow) resolveEnv() {
 		db.DSN = override(DSNEnv(name), ExpandEnv(db.DSN))
 		wf.Services.Databases[name] = db
 	}
+	for name, p := range wf.Services.XUI {
+		env := XUIEnv(name)
+		p.URL = override(env+"_URL", ExpandEnv(p.URL))
+		p.Username = override(env+"_USERNAME", ExpandEnv(p.Username))
+		p.Password = override(env+"_PASSWORD", ExpandEnv(p.Password))
+		p.TOTPSecret = override(env+"_TOTP", ExpandEnv(p.TOTPSecret))
+		p.SubURL = ExpandEnv(p.SubURL)
+		p.Address = ExpandEnv(p.Address)
+		wf.Services.XUI[name] = p
+	}
+}
+
+// XUIEnv is the prefix of the variables that override an X-UI panel's
+// settings: TGC_XUI_<NAME>_URL, _USERNAME, _PASSWORD and _TOTP.
+func XUIEnv(name string) string {
+	return "TGC_XUI_" + envName(name)
 }
 
 // DSNEnv is the environment variable that overrides a database's DSN.
 func DSNEnv(name string) string {
-	return "TGC_DB_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(name)) + "_DSN"
+	return "TGC_DB_" + envName(name) + "_DSN"
+}
+
+func envName(name string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(name))
 }
 
 func override(env, v string) string {
@@ -185,6 +252,13 @@ func (wf *Workflow) Validate() error {
 		case "postgres", "mysql", "sqlite":
 		default:
 			return fmt.Errorf("database %q: unsupported driver %q (postgres, mysql, sqlite)", name, db.Driver)
+		}
+	}
+	for name, p := range wf.Services.XUI {
+		switch p.Type {
+		case "", "3x-ui", "x-ui":
+		default:
+			return fmt.Errorf("xui panel %q: unsupported type %q (3x-ui, x-ui)", name, p.Type)
 		}
 	}
 	return nil
