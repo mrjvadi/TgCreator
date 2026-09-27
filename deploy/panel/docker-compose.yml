@@ -37,7 +37,8 @@ services:
     environment:
       CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: "${CENTRIFUGO_SECRET}"
       CENTRIFUGO_HTTP_API_KEY: "${CENTRIFUGO_API_KEY}"
-      CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: '["${PANEL_ORIGIN:-http://localhost:8090}"]'
+      # Space-separated list of origins allowed to open WebSockets.
+      CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: "${PANEL_ORIGIN:-http://localhost:8090}"
 
   testdb:
     image: postgres:16-alpine

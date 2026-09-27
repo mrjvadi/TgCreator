@@ -63,7 +63,7 @@ docker compose up -d --build
 ```bash
 # Centrifugo v6
 CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY=secret CENTRIFUGO_HTTP_API_KEY=apikey \
-CENTRIFUGO_CLIENT_ALLOWED_ORIGINS='["http://localhost:8090"]' \
+CENTRIFUGO_CLIENT_ALLOWED_ORIGINS=http://localhost:8090 \
   centrifugo -c deploy/centrifugo/config.json
 
 # پنل
@@ -82,7 +82,7 @@ TGC_CENTRIFUGO_SECRET=secret TGC_CENTRIFUGO_WS_URL=ws://localhost:8000/connectio
 
 بدون Centrifugo هم پنل کار می‌کند و تست زنده به polling برمی‌گردد.
 
-**توسعهٔ رابط کاربری:** در پوشهٔ `web/` دستور `npm ci && npm run dev` را اجرا کنید (Vite درخواست‌های `/api` را به پنل روی پورت 8090 می‌فرستد). با `npm run build` خروجی در `web/dist` ساخته می‌شود و داخل فایل اجرایی Go قرار می‌گیرد، پس برای اجرای پنل به Node نیازی نیست.
+**توسعهٔ رابط کاربری:** در پوشهٔ `web/` دستور `npm ci && npm run dev` را اجرا کنید (Vite درخواست‌های `/api` را به پنل روی پورت 8090 می‌فرستد). آدرس Vite را هم به Centrifugo اضافه کنید؛ مقدارها با فاصله جدا می‌شوند: `CENTRIFUGO_CLIENT_ALLOWED_ORIGINS="http://localhost:8090 http://localhost:5173"`. با `npm run build` خروجی در `web/dist` ساخته می‌شود و داخل فایل اجرایی Go قرار می‌گیرد، پس برای اجرای پنل به Node نیازی نیست.
 
 ## شروع سریع
 

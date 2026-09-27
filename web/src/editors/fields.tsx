@@ -1,3 +1,4 @@
+import { Braces, Link2, MousePointerClick, Plus, Search, Trash2, X } from "lucide-react";
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import { CatalogContext } from "../context";
 import type { Json } from "../types";
@@ -23,7 +24,7 @@ export const baseVars: VarGroup[] = [
       { expr: "chat.type", label: "نوع چت" },
       { expr: "message.message_id", label: "شناسهٔ پیام" },
       { expr: "command", label: "دستور" },
-      { expr: "args[0]", label: "آرگومان اول" },
+      { expr: "args[0]", label: "آرگومان اول دستور" },
       { expr: "args_text", label: "همهٔ آرگومان‌ها" },
       { expr: "data", label: "callback_data دکمه" },
       { expr: "reply.from.id", label: "کاربرِ پیام ریپلای‌شده" },
@@ -36,8 +37,8 @@ export const baseVars: VarGroup[] = [
       { expr: "escapeHTML(text)", label: "متن امن برای HTML" },
       { expr: "hasLink(message)", label: "لینک دارد؟" },
       { expr: "upper(text)", label: "حروف بزرگ" },
-      { expr: "now().Unix()", label: "زمان فعلی (ثانیه)" },
       { expr: "len(text)", label: "طول متن" },
+      { expr: "now().Unix()", label: "زمان فعلی (ثانیه)" },
     ],
   },
 ];
@@ -55,31 +56,34 @@ export function VarMenu({ groups, onPick }: { groups: VarGroup[]; onPick: (expr:
   const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
   return (
     <div className="varmenu" ref={ref}>
-      <button type="button" className="btn-icon" title="درج متغیر" onClick={() => setOpen(!open)}>
-        {"{x}"}
+      <button type="button" className={`var-btn${open ? " on" : ""}`} title="درج متغیر" onClick={() => setOpen(!open)}>
+        <Braces size={13} />
       </button>
       {open && (
-        <div className="varmenu-pop">
-          <input autoFocus className="input" placeholder="جست‌وجو…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="pop varmenu-pop">
+          <div className="pop-search">
+            <Search size={14} />
+            <input autoFocus placeholder="جست‌وجوی متغیر…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
           <div className="varmenu-list">
             {groups.map((g) => {
               const items = g.items.filter((i) => match(i.expr) || match(i.label));
               if (!items.length) return null;
               return (
                 <div key={g.title}>
-                  <div className="varmenu-title">{g.title}</div>
+                  <div className="pop-title">{g.title}</div>
                   {items.map((i) => (
                     <button
                       type="button"
                       key={i.expr}
-                      className="varmenu-item"
+                      className="pop-item"
                       onClick={() => {
                         onPick(i.expr);
                         setOpen(false);
                       }}
                     >
-                      <code dir="ltr">{i.expr}</code>
                       <span>{i.label}</span>
+                      <code dir="ltr">{i.expr}</code>
                     </button>
                   ))}
                 </div>
@@ -110,22 +114,26 @@ export function TextField(props: {
   bare?: boolean; // expressions: insert without {{ }}
   vars?: VarGroup[];
   list?: string[];
+  rows?: number;
 }) {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const listId = useId();
-  const pick = (expr: string) => props.onChange(insertAt(ref.current, props.value, props.bare ? expr : `{{ ${expr} }}`));
+  const pick = (expr: string) => {
+    props.onChange(insertAt(ref.current, props.value, props.bare ? expr : `{{ ${expr} }}`));
+    requestAnimationFrame(() => ref.current?.focus());
+  };
   const common = {
     ref,
-    className: `input${props.mono ? " mono" : ""}`,
+    className: `input${props.mono ? " mono" : ""}${props.vars ? " with-var" : ""}`,
     value: props.value,
     placeholder: props.placeholder,
     dir: props.mono ? "ltr" : "auto",
     onChange: (e: React.ChangeEvent<HTMLInputElement & HTMLTextAreaElement>) => props.onChange(e.target.value),
   };
   return (
-    <div className="field-row">
+    <div className="tf">
       {props.multiline ? (
-        <textarea {...common} rows={props.mono ? 3 : 4} spellCheck={!props.mono} />
+        <textarea {...common} rows={props.rows ?? (props.mono ? 3 : 4)} spellCheck={!props.mono} />
       ) : (
         <input {...common} list={props.list ? listId : undefined} />
       )}
@@ -157,7 +165,7 @@ export function TagsInput({ value, onChange, options, placeholder }: { value: st
         <span key={t} className="tag" dir="auto">
           {t}
           <button type="button" onClick={() => onChange(value.filter((x) => x !== t))} aria-label="حذف">
-            ×
+            <X size={11} strokeWidth={2.5} />
           </button>
         </span>
       ))}
@@ -165,7 +173,7 @@ export function TagsInput({ value, onChange, options, placeholder }: { value: st
         className="tags-input"
         value={draft}
         list={options ? listId : undefined}
-        placeholder={value.length ? "" : placeholder ?? "بنویس و Enter"}
+        placeholder={value.length ? "" : placeholder ?? "بنویسید و Enter بزنید"}
         onChange={(e) => {
           const v = e.target.value;
           if (options?.includes(v)) add(v);
@@ -192,14 +200,14 @@ export function TagsInput({ value, onChange, options, placeholder }: { value: st
   );
 }
 
-// ---------- inline keyboard ----------
+// ---------- inline keyboard (Telegram-like preview) ----------
 
 type Btn = Record<string, Json>;
 const btnKinds: [string, string][] = [
-  ["callback_data", "دکمهٔ عملیات"],
+  ["callback_data", "عملیات"],
   ["url", "لینک"],
   ["web_app", "مینی‌اپ"],
-  ["switch_inline_query_current_chat", "جست‌وجوی inline"],
+  ["switch_inline_query_current_chat", "inline"],
 ];
 
 function rowsOf(v: Json | undefined): Btn[][] {
@@ -211,104 +219,169 @@ function kindOf(b: Btn): string {
   return btnKinds.find(([k]) => k in b)?.[0] ?? "callback_data";
 }
 
-export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefined; onChange: (v: Json) => void; vars: VarGroup[] }) {
+export function ButtonsEditor({ value, onChange, vars }: { value: Json | undefined; onChange: (v: Json | undefined) => void; vars: VarGroup[] }) {
   const rows = rowsOf(value);
-  const set = (r: Btn[][]) => onChange(r.filter((row) => row.length) as Json);
+  const [sel, setSel] = useState<[number, number] | null>(null);
+  const set = (r: Btn[][]) => {
+    const clean = r.filter((row) => row.length);
+    onChange(clean.length ? (clean as Json) : undefined);
+  };
   const update = (ri: number, bi: number, b: Btn) => set(rows.map((row, i) => (i === ri ? row.map((x, j) => (j === bi ? b : x)) : row)));
+  const add = (ri: number) => {
+    const next = ri === rows.length ? [...rows, [{ text: "دکمه", callback_data: "" }]] : rows.map((r, i) => (i === ri ? [...r, { text: "دکمه", callback_data: "" }] : r));
+    set(next);
+    setSel([ri, ri === rows.length ? 0 : rows[ri].length]);
+  };
+  const cur = sel && rows[sel[0]]?.[sel[1]];
+  const kind = cur ? kindOf(cur) : "callback_data";
+  const raw = cur?.[kind];
+  const val = kind === "web_app" ? String((raw as { url?: string })?.url ?? "") : String(raw ?? "");
+
   return (
-    <div className="kb">
-      {rows.map((row, ri) => (
-        <div key={ri} className="kb-row">
-          {row.map((b, bi) => {
-            const kind = kindOf(b);
-            const raw = b[kind];
-            const val = kind === "web_app" ? String((raw as { url?: string })?.url ?? "") : String(raw ?? "");
-            return (
-              <div key={bi} className="kb-btn">
-                <div className="field-row">
-                  <input className="input" dir="auto" placeholder="متن دکمه" value={String(b.text ?? "")} onChange={(e) => update(ri, bi, { ...b, text: e.target.value })} />
-                  <button type="button" className="btn-icon danger" title="حذف دکمه" onClick={() => set(rows.map((r, i) => (i === ri ? r.filter((_, j) => j !== bi) : r)))}>
-                    ×
-                  </button>
-                </div>
-                <div className="field-row">
-                  <select
-                    className="input small"
-                    value={kind}
-                    onChange={(e) => {
-                      const nb: Btn = { text: b.text ?? "" };
-                      nb[e.target.value] = e.target.value === "web_app" ? { url: val } : val;
-                      update(ri, bi, nb);
-                    }}
-                  >
-                    {btnKinds.map(([k, l]) => (
-                      <option key={k} value={k}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                  <TextField
-                    value={val}
-                    placeholder={kind === "callback_data" ? "مثلاً buy:1" : "https://…"}
-                    onChange={(v) => update(ri, bi, { ...b, [kind]: kind === "web_app" ? { url: v } : v })}
-                    vars={vars}
-                  />
-                </div>
-              </div>
-            );
-          })}
-          <button type="button" className="btn-ghost small" onClick={() => set(rows.map((r, i) => (i === ri ? [...r, { text: "", callback_data: "" }] : r)))}>
-            + دکمه در این ردیف
-          </button>
+    <div className="kbd">
+      <div className="kbd-preview">
+        {rows.map((row, ri) => (
+          <div key={ri} className="kbd-row">
+            {row.map((b, bi) => (
+              <button type="button" key={bi} className={`kbd-btn${sel?.[0] === ri && sel?.[1] === bi ? " sel" : ""}`} onClick={() => setSel([ri, bi])}>
+                {kindOf(b) === "url" && <Link2 size={11} />}
+                <span dir="auto">{String(b.text ?? "") || "بدون متن"}</span>
+              </button>
+            ))}
+            <button type="button" className="kbd-add" title="دکمه در همین ردیف" onClick={() => add(ri)}>
+              <Plus size={13} />
+            </button>
+          </div>
+        ))}
+        <button type="button" className="kbd-add-row" onClick={() => add(rows.length)}>
+          <Plus size={13} /> ردیف جدید
+        </button>
+      </div>
+      {cur && sel && (
+        <div className="kbd-edit">
+          <div className="kbd-edit-head">
+            <span>ویرایش دکمه</span>
+            <button
+              type="button"
+              className="icon-btn danger"
+              title="حذف دکمه"
+              onClick={() => {
+                set(rows.map((r, i) => (i === sel[0] ? r.filter((_, j) => j !== sel[1]) : r)));
+                setSel(null);
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+          <TextField value={String(cur.text ?? "")} placeholder="متن دکمه" onChange={(v) => update(sel[0], sel[1], { ...cur, text: v })} vars={vars} />
+          <div className="seg">
+            {btnKinds.map(([k, l]) => (
+              <button
+                type="button"
+                key={k}
+                className={kind === k ? "on" : ""}
+                onClick={() => {
+                  const nb: Btn = { text: cur.text ?? "" };
+                  nb[k] = k === "web_app" ? { url: val } : val;
+                  update(sel[0], sel[1], nb);
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <TextField
+            value={val}
+            mono={kind !== "switch_inline_query_current_chat"}
+            placeholder={kind === "callback_data" ? "مثلاً buy:{{ from.id }}" : kind === "switch_inline_query_current_chat" ? "متن پیش‌فرض" : "https://…"}
+            onChange={(v) => update(sel[0], sel[1], { ...cur, [kind]: kind === "web_app" ? { url: v } : v })}
+            vars={vars}
+          />
+          {kind === "callback_data" && (
+            <div className="hint">
+              <MousePointerClick size={12} /> با نود «کلیک دکمه» و همین مقدار (یا پیشوندش) پاسخ دهید
+            </div>
+          )}
         </div>
-      ))}
-      <button type="button" className="btn-ghost small" onClick={() => set([...rows, [{ text: "", callback_data: "" }]])}>
-        + ردیف جدید
-      </button>
+      )}
     </div>
   );
 }
 
 // ---------- reply keyboard ----------
 
-export function KeyboardEditor({ value, onChange }: { value: Json | undefined; onChange: (v: Json) => void }) {
+export function KeyboardEditor({ value, onChange }: { value: Json | undefined; onChange: (v: Json | undefined) => void }) {
   const rows = rowsOf(value).map((r) => r.map((b) => (typeof b === "string" ? ({ text: b } as Btn) : b)));
-  const set = (r: Btn[][]) =>
-    onChange(r.filter((row) => row.length).map((row) => row.map((b) => (Object.keys(b).length === 1 ? String(b.text ?? "") : b))) as Json);
+  const [sel, setSel] = useState<[number, number] | null>(null);
+  const set = (r: Btn[][]) => {
+    const clean = r.filter((row) => row.length).map((row) => row.map((b) => (Object.keys(b).length === 1 ? String(b.text ?? "") : b)));
+    onChange(clean.length ? (clean as Json) : undefined);
+  };
+  const add = (ri: number) => {
+    set(ri === rows.length ? [...rows, [{ text: "گزینه" }]] : rows.map((r, i) => (i === ri ? [...r, { text: "گزینه" }] : r)));
+    setSel([ri, ri === rows.length ? 0 : rows[ri].length]);
+  };
+  const cur = sel && rows[sel[0]]?.[sel[1]];
+  const kind = cur?.request_contact ? "contact" : cur?.request_location ? "location" : "";
+  const update = (b: Btn) => sel && set(rows.map((r, i) => (i === sel[0] ? r.map((x, j) => (j === sel[1] ? b : x)) : r)));
   return (
-    <div className="kb">
-      {rows.map((row, ri) => (
-        <div key={ri} className="kb-row">
-          {row.map((b, bi) => (
-            <div key={bi} className="field-row">
-              <input className="input" dir="auto" placeholder="متن" value={String(b.text ?? "")} onChange={(e) => set(rows.map((r, i) => (i === ri ? r.map((x, j) => (j === bi ? { ...x, text: e.target.value } : x)) : r)))} />
-              <select
-                className="input small"
-                value={b.request_contact ? "contact" : b.request_location ? "location" : ""}
-                onChange={(e) => {
-                  const nb: Btn = { text: b.text ?? "" };
-                  if (e.target.value === "contact") nb.request_contact = true;
-                  if (e.target.value === "location") nb.request_location = true;
-                  set(rows.map((r, i) => (i === ri ? r.map((x, j) => (j === bi ? nb : x)) : r)));
+    <div className="kbd reply">
+      <div className="kbd-preview">
+        {rows.map((row, ri) => (
+          <div key={ri} className="kbd-row">
+            {row.map((b, bi) => (
+              <button type="button" key={bi} className={`kbd-btn${sel?.[0] === ri && sel?.[1] === bi ? " sel" : ""}`} onClick={() => setSel([ri, bi])}>
+                <span dir="auto">{String(b.text ?? "") || "بدون متن"}</span>
+              </button>
+            ))}
+            <button type="button" className="kbd-add" onClick={() => add(ri)}>
+              <Plus size={13} />
+            </button>
+          </div>
+        ))}
+        <button type="button" className="kbd-add-row" onClick={() => add(rows.length)}>
+          <Plus size={13} /> ردیف جدید
+        </button>
+      </div>
+      {cur && sel && (
+        <div className="kbd-edit">
+          <div className="kbd-edit-head">
+            <span>ویرایش دکمه</span>
+            <button
+              type="button"
+              className="icon-btn danger"
+              onClick={() => {
+                set(rows.map((r, i) => (i === sel[0] ? r.filter((_, j) => j !== sel[1]) : r)));
+                setSel(null);
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+          <input className="input" dir="auto" value={String(cur.text ?? "")} onChange={(e) => update({ ...cur, text: e.target.value })} />
+          <div className="seg">
+            {[
+              ["", "متن عادی"],
+              ["contact", "درخواست شماره"],
+              ["location", "درخواست مکان"],
+            ].map(([k, l]) => (
+              <button
+                type="button"
+                key={k}
+                className={kind === k ? "on" : ""}
+                onClick={() => {
+                  const nb: Btn = { text: cur.text ?? "" };
+                  if (k === "contact") nb.request_contact = true;
+                  if (k === "location") nb.request_location = true;
+                  update(nb);
                 }}
               >
-                <option value="">متن عادی</option>
-                <option value="contact">درخواست شماره</option>
-                <option value="location">درخواست مکان</option>
-              </select>
-              <button type="button" className="btn-icon danger" onClick={() => set(rows.map((r, i) => (i === ri ? r.filter((_, j) => j !== bi) : r)))}>
-                ×
+                {l}
               </button>
-            </div>
-          ))}
-          <button type="button" className="btn-ghost small" onClick={() => set(rows.map((r, i) => (i === ri ? [...r, { text: "" }] : r)))}>
-            + دکمه
-          </button>
+            ))}
+          </div>
         </div>
-      ))}
-      <button type="button" className="btn-ghost small" onClick={() => set([...rows, [{ text: "" }]])}>
-        + ردیف جدید
-      </button>
+      )}
     </div>
   );
 }
@@ -327,16 +400,16 @@ export function VarsEditor({ value, onChange, vars, keyPlaceholder }: { value: J
   return (
     <div className="kv">
       {rows.map(([k, v], i) => (
-        <div key={i} className="field-row">
-          <input className="input mono key" dir="ltr" placeholder={keyPlaceholder ?? "نام"} value={k} onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
+        <div key={i} className="kv-row">
+          <input className="input mono kv-key" dir="ltr" placeholder={keyPlaceholder ?? "نام"} value={k} onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
           <TextField value={v} placeholder="مقدار" vars={vars} onChange={(nv) => commit(rows.map((r, j) => (j === i ? [r[0], nv] : r)))} />
-          <button type="button" className="btn-icon danger" onClick={() => commit(rows.filter((_, j) => j !== i))}>
-            ×
+          <button type="button" className="icon-btn danger" onClick={() => commit(rows.filter((_, j) => j !== i))} aria-label="حذف">
+            <Trash2 size={14} />
           </button>
         </div>
       ))}
-      <button type="button" className="btn-ghost small" onClick={() => setRows([...rows, ["", ""]])}>
-        + افزودن
+      <button type="button" className="add-line" onClick={() => setRows([...rows, ["", ""]])}>
+        <Plus size={13} /> افزودن
       </button>
     </div>
   );
@@ -350,7 +423,7 @@ export function JsonEditor({ value, onChange, placeholder }: { value: Json | und
   return (
     <div>
       <textarea
-        className={`input mono${err ? " invalid" : ""}`}
+        className={`input mono code${err ? " invalid" : ""}`}
         dir="ltr"
         rows={Math.min(12, Math.max(3, text.split("\n").length))}
         value={text}

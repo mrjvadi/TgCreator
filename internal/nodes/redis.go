@@ -22,14 +22,14 @@ func requireRedis(map[string]any) []string { return []string{"redis"} }
 func init() {
 	pKey := engine.Param{Name: "key", Label: "کلید", Type: "text", Required: true, Placeholder: "lock:{{ chat.id }}"}
 	pTTL := engine.Param{Name: "ttl", Label: "انقضا", Type: "duration", Placeholder: "10m", Help: "ثانیه یا 10m"}
-	engine.Describe("redis.get", engine.Meta{Label: "Redis: خواندن", Category: "redis", Icon: "R",
+	engine.Describe("redis.get", engine.Meta{Label: "Redis: خواندن", Category: "redis", Icon: "database-zap", Summary: "خواندن یک کلید",
 		Params: []engine.Param{pKey, {Name: "json", Label: "تبدیل از JSON", Type: "bool"}}})
-	engine.Describe("redis.set", engine.Meta{Label: "Redis: نوشتن", Category: "redis", Icon: "R",
+	engine.Describe("redis.set", engine.Meta{Label: "Redis: نوشتن", Category: "redis", Icon: "database-zap", Summary: "نوشتن کلید، با انقضای اختیاری",
 		Params: []engine.Param{pKey, {Name: "value", Label: "مقدار", Type: "text", Default: "1"}, pTTL, {Name: "nx", Label: "فقط اگر وجود ندارد", Type: "bool"}}})
-	engine.Describe("redis.del", engine.Meta{Label: "Redis: حذف", Category: "redis", Icon: "R", Params: []engine.Param{pKey}})
-	engine.Describe("redis.incr", engine.Meta{Label: "Redis: شمارنده", Category: "redis", Icon: "R",
+	engine.Describe("redis.del", engine.Meta{Label: "Redis: حذف", Category: "redis", Icon: "database-zap", Summary: "حذف کلید", Params: []engine.Param{pKey}})
+	engine.Describe("redis.incr", engine.Meta{Label: "Redis: شمارنده", Category: "redis", Icon: "database-zap", Summary: "شمارنده؛ مناسب ضد اسپم و محدودیت",
 		Params: []engine.Param{pKey, {Name: "by", Label: "افزایش", Type: "number", Default: 1}, pTTL}})
-	engine.Describe("redis.command", engine.Meta{Label: "Redis: دستور دلخواه", Category: "redis", Icon: "R",
+	engine.Describe("redis.command", engine.Meta{Label: "Redis: دستور دلخواه", Category: "redis", Icon: "database-zap", Summary: "هر دستور Redis",
 		Params: []engine.Param{{Name: "command", Label: "دستور", Type: "json", Required: true, Default: []any{"HSET", "key", "field", "value"}}}})
 
 	engine.RegisterService("redis", openRedis)

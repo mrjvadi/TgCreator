@@ -32,9 +32,9 @@ func init() {
 		{Name: "query", Label: "کوئری", Type: "sql", Required: true, Help: "مقادیر با $1، $2 … (یا ?) و از طریق args"},
 		{Name: "args", Label: "مقادیر", Type: "json", Default: []any{}, Placeholder: `["{{ from.id }}"]`},
 	}
-	engine.Describe("db.query", engine.Meta{Label: "دیتابیس: خواندن", Category: "db", Icon: "🗄",
+	engine.Describe("db.query", engine.Meta{Label: "دیتابیس: خواندن", Category: "db", Icon: "database", Summary: "اجرای SELECT و گرفتن ردیف‌ها",
 		Params: append(append([]engine.Param{}, sqlParams...), engine.Param{Name: "single", Label: "فقط ردیف اول", Type: "bool"})})
-	engine.Describe("db.exec", engine.Meta{Label: "دیتابیس: اجرا", Category: "db", Icon: "🗄", Params: sqlParams})
+	engine.Describe("db.exec", engine.Meta{Label: "دیتابیس: اجرا", Category: "db", Icon: "database", Summary: "INSERT، UPDATE یا DELETE", Params: sqlParams})
 
 	engine.RegisterService("db", openDB)
 	engine.Register(engine.NodeType{

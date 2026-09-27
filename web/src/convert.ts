@@ -6,7 +6,7 @@ export interface FlowData extends Record<string, unknown> {
   spec: WorkflowNode;
   issue?: "error" | "warning";
   issueText?: string;
-  running?: boolean;
+  connected?: string[]; // outputs that have at least one edge
 }
 export type FlowNode = Node<FlowData, "tg">;
 export type MetaMap = Record<string, NodeType>;
@@ -29,15 +29,7 @@ export function outputsOf(spec: WorkflowNode, meta?: NodeMeta): string[] {
 }
 
 export function edgeFor(source: string, output: string, target: string): Edge {
-  return {
-    id: `${source}|${output}|${target}`,
-    source,
-    sourceHandle: output,
-    target,
-    targetHandle: "in",
-    label: output === "main" ? undefined : output,
-    className: `edge-${output === "error" ? "error" : output === "false" ? "false" : output === "true" ? "true" : "main"}`,
-  };
+  return { id: `${source}|${output}|${target}`, type: "tg", source, sourceHandle: output, target, targetHandle: "in" };
 }
 
 export type WorkflowRest = Omit<Workflow, "nodes" | "connections">;
@@ -81,20 +73,72 @@ export function toWorkflow(rest: WorkflowRest, nodes: FlowNode[], edges: Edge[])
   };
 }
 
-/** Left-to-right layered layout (used for workflows without positions). */
-export function layout(nodes: FlowNode[], edges: Edge[]): FlowNode[] {
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "LR", nodesep: 28, ranksep: 90, marginx: 20, marginy: 20 });
-  g.setDefaultEdgeLabel(() => ({}));
-  for (const n of nodes) g.setNode(n.id, { width: n.measured?.width ?? 230, height: n.measured?.height ?? 90 });
-  for (const e of edges) g.setEdge(e.source, e.target);
-  dagre.layout(g);
-  return nodes.map((n) => {
-    const p = g.node(n.id);
-    const w = n.measured?.width ?? 230;
-    const h = n.measured?.height ?? 90;
-    return { ...n, position: { x: p.x - w / 2, y: p.y - h / 2 } };
-  });
+/**
+ * Left-to-right layout. Each independent flow (trigger + what it reaches) is
+ * laid out on its own and the flows are packed in rows, so large workflows
+ * stay readable instead of becoming one very tall column.
+ */
+export function layout(nodes: FlowNode[], edges: Edge[], aspect = 1.6): FlowNode[] {
+  const size = (n: FlowNode) => ({ w: n.measured?.width ?? 250, h: n.measured?.height ?? 70 });
+
+  // Weakly connected components (union-find).
+  const parent = new Map(nodes.map((n) => [n.id, n.id]));
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(x, r);
+    return r;
+  };
+  for (const e of edges) if (parent.has(e.source) && parent.has(e.target)) parent.set(find(e.source), find(e.target));
+  const groups = new Map<string, FlowNode[]>();
+  for (const n of nodes) {
+    const r = find(n.id);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r)!.push(n);
+  }
+
+  const placed = new Map<string, { x: number; y: number }>();
+  const blocks: { ids: string[]; w: number; h: number; pos: Map<string, { x: number; y: number }> }[] = [];
+  for (const members of groups.values()) {
+    const ids = new Set(members.map((m) => m.id));
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: "LR", nodesep: 26, ranksep: 110 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const n of members) g.setNode(n.id, { width: size(n).w, height: size(n).h });
+    for (const e of edges) if (ids.has(e.source) && ids.has(e.target)) g.setEdge(e.source, e.target);
+    dagre.layout(g);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const pos = new Map<string, { x: number; y: number }>();
+    for (const n of members) {
+      const p = g.node(n.id);
+      const { w, h } = size(n);
+      const x = p.x - w / 2, y = p.y - h / 2;
+      pos.set(n.id, { x, y });
+      minX = Math.min(minX, x); minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    }
+    for (const [id, p] of pos) pos.set(id, { x: p.x - minX, y: p.y - minY });
+    blocks.push({ ids: [...ids], w: maxX - minX, h: maxY - minY, pos });
+  }
+
+  // Pack blocks in rows about as wide as the layout is tall.
+  const area = blocks.reduce((a, b) => a + (b.w + 80) * (b.h + 60), 0);
+  const rowWidth = Math.max(1400, Math.sqrt(area * Math.min(Math.max(aspect, 0.8), 2.5)));
+  let x = 0, y = 0, rowH = 0;
+  for (const b of blocks) {
+    if (x > 0 && x + b.w > rowWidth) {
+      x = 0;
+      y += rowH + 70;
+      rowH = 0;
+    }
+    for (const id of b.ids) {
+      const p = b.pos.get(id)!;
+      placed.set(id, { x: x + p.x, y: y + p.y });
+    }
+    x += b.w + 90;
+    rowH = Math.max(rowH, b.h);
+  }
+  return nodes.map((n) => ({ ...n, position: placed.get(n.id) ?? n.position }));
 }
 
 export function uniqueId(base: string, taken: Set<string>): string {
@@ -155,6 +199,30 @@ export function summary(spec: WorkflowNode): string {
     default:
       s = pick("text", "caption", "key", "duration", "items", "message", "file", "type", "method");
   }
-  s = s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  s = humanize(s.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
   return s.length > 70 ? s.slice(0, 68) + "…" : s;
+}
+
+const friendly: Record<string, string> = {
+  "from.first_name": "نام کاربر",
+  "from.id": "شناسهٔ کاربر",
+  "from.username": "یوزرنیم",
+  "mention(from)": "منشن کاربر",
+  text: "متن پیام",
+  "chat.id": "چت فعلی",
+  "chat.title": "نام گروه",
+  "message.message_id": "پیام فعلی",
+  args_text: "آرگومان‌ها",
+  "args[0]": "آرگومان اول",
+  data: "داده دکمه",
+  "reply.from.id": "کاربر ریپلای‌شده",
+  "bot.username": "یوزرنیم ربات",
+};
+
+/** Shows {{ expressions }} in node summaries as short readable tokens. */
+function humanize(s: string): string {
+  return s.replace(/\{\{\s*(.*?)\s*\}\}/g, (_, raw: string) => {
+    const expr = raw.replace(/^escapeHTML\((.*)\)$/, "$1").trim();
+    return `«${friendly[expr] ?? expr}»`;
+  });
 }

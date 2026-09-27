@@ -57,9 +57,10 @@ type Param struct {
 // Meta is what the visual builder needs to draw and edit a node.
 type Meta struct {
 	Label    string   `json:"label"`
-	Category string   `json:"category"` // trigger, telegram, logic, state, redis, db, http
-	Icon     string   `json:"icon,omitempty"`
-	Outputs  []string `json:"outputs"` // named outputs; empty for none
+	Summary  string   `json:"summary"`        // one line shown in the node picker
+	Category string   `json:"category"`       // trigger, telegram, logic, state, redis, db, http
+	Icon     string   `json:"icon,omitempty"` // lucide icon name
+	Outputs  []string `json:"outputs"`        // named outputs; empty for none
 	// CaseOutputs names a tags param whose values become extra outputs
 	// (logic.switch cases).
 	CaseOutputs string  `json:"case_outputs,omitempty"`

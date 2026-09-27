@@ -62,6 +62,7 @@ export interface Param {
 
 export interface NodeMeta {
   label: string;
+  summary: string;
   category: string;
   icon?: string;
   outputs: string[];
@@ -163,9 +164,9 @@ export interface TestSession {
 }
 
 export const categories: Record<string, { title: string; color: string }> = {
-  trigger: { title: "شروع", color: "var(--c-trigger)" },
+  trigger: { title: "شروع‌کننده‌ها", color: "var(--c-trigger)" },
   telegram: { title: "تلگرام", color: "var(--c-telegram)" },
-  logic: { title: "منطق", color: "var(--c-logic)" },
+  logic: { title: "منطق و جریان", color: "var(--c-logic)" },
   state: { title: "وضعیت کاربر", color: "var(--c-state)" },
   redis: { title: "Redis", color: "var(--c-redis)" },
   db: { title: "دیتابیس", color: "var(--c-db)" },

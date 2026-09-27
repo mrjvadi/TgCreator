@@ -1,3 +1,4 @@
+import { Activity, AtSign, Bot, CornerDownLeft, Link2, Megaphone, Phone, Plus, Reply, RotateCcw, Send, User, UserPlus, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { follow, type LiveMessage, type LiveStatus } from "../realtime";
@@ -7,21 +8,23 @@ const ME = 1001;
 const OTHER = 1002;
 
 const statusText: Record<LiveStatus, string> = {
-  connecting: "در حال اتصال به Centrifugo…",
-  live: "زنده (Centrifugo)",
-  polling: "بدون Centrifugo (polling)",
-  offline: "قطع",
+  connecting: "در حال اتصال…",
+  live: "آنلاین · زنده از طریق Centrifugo",
+  polling: "آنلاین · بدون Centrifugo",
+  offline: "قطع شد",
 };
 
-const mediaIcon: Record<string, string> = {
-  photo: "📷", video: "🎬", audio: "🎵", document: "📄", animation: "🎞", voice: "🎤", video_note: "⏺", sticker: "🏷",
-  poll: "📊", dice: "🎲", invoice: "🧾", contact: "👤", location: "📍",
+const mediaLabel: Record<string, string> = {
+  photo: "📷 عکس", video: "🎬 ویدیو", audio: "🎵 صدا", document: "📄 فایل", animation: "🎞 گیف", voice: "🎤 پیام صوتی",
+  video_note: "⏺ ویدیو مسیج", sticker: "استیکر", poll: "📊 نظرسنجی", dice: "🎲 تاس", invoice: "🧾 صورت‌حساب",
+  contact: "👤 مخاطب", location: "📍 موقعیت",
 };
 
-function chatTitle(c: { id: number; type: string; title: string }) {
-  if (c.id === ME) return "پیوی شما";
-  if (c.id === OTHER) return "پیوی کاربر تست";
-  return c.type === "channel" ? `📢 ${c.title}` : `👥 ${c.title}`;
+function chatMeta(c: { id: number; type: string; title: string }) {
+  if (c.id === ME) return { label: "پیوی شما", Icon: User };
+  if (c.id === OTHER) return { label: "پیوی کاربر ۲", Icon: User };
+  if (c.type === "channel") return { label: c.title, Icon: Megaphone };
+  return { label: c.title, Icon: Users };
 }
 
 export default function TestChat({ workflow, onClose }: { workflow: () => Workflow; onClose: () => void }) {
@@ -36,8 +39,10 @@ export default function TestChat({ workflow, onClose }: { workflow: () => Workfl
   const [replyTo, setReplyTo] = useState<MsgView | null>(null);
   const [toast, setToast] = useState<{ text: string; alert: boolean } | null>(null);
   const [showLog, setShowLog] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef<TestSession | null>(null);
 
   const onLive = useCallback((m: LiveMessage) => {
@@ -61,6 +66,7 @@ export default function TestChat({ workflow, onClose }: { workflow: () => Workfl
     setChats({});
     setEvents([]);
     setReplyTo(null);
+    setSession(null);
     try {
       const s = await api.testStart(workflow());
       if (my !== gen.current) {
@@ -98,19 +104,18 @@ export default function TestChat({ workflow, onClose }: { workflow: () => Workfl
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), toast.alert ? 6000 : 3000);
+    const t = setTimeout(() => setToast(null), toast.alert ? 6000 : 2800);
     return () => clearTimeout(t);
   }, [toast]);
 
   const snap = chats[active];
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [snap?.messages.length, active]);
 
   const restart = async () => {
     if (sessionRef.current) await api.testStop(sessionRef.current.id).catch(() => {});
     sessionRef.current = null;
-    setSession(null);
     start();
   };
 
@@ -133,187 +138,246 @@ export default function TestChat({ workflow, onClose }: { workflow: () => Workfl
     act({ type: "send", text: t, message_id: replyTo?.id ?? 0 });
     setText("");
     setReplyTo(null);
+    inputRef.current?.focus();
   };
 
-  const problems = events.filter((e) => e.kind === "error" || e.kind === "log");
+  const problems = events.filter((e) => e.kind === "error" || e.kind === "log").length;
   const isGroup = snap?.chat.type === "supergroup" || snap?.chat.type === "group";
+  const isChannel = snap?.chat.type === "channel";
   const otherIsMember = useMemo(() => snap?.members?.some((m) => m.user_id === OTHER && !["left", "kicked"].includes(m.status)), [snap]);
+  const byId = useMemo(() => Object.fromEntries((snap?.messages ?? []).map((m) => [m.id, m])), [snap]);
 
   return (
-    <div className="testchat">
-      <div className="tc-head">
-        <div>
-          <div className="tc-title">تست زنده</div>
-          <div className={`tc-status st-${status}`}>● {statusText[status]}</div>
+    <div className="tg">
+      <div className="tg-head">
+        <div className="tg-avatar">
+          <Bot size={20} />
         </div>
-        <div className="tc-head-actions">
-          <button type="button" className="btn-ghost small" onClick={restart} title="اجرای دوباره با آخرین تغییرات">
-            ↻ از نو
-          </button>
-          <button type="button" className="btn-icon" onClick={onClose} aria-label="بستن">
-            ×
-          </button>
+        <div className="tg-who">
+          <div className="tg-name">ربات شما · حالت تست</div>
+          <div className={`tg-status st-${status}`}>{error ? "خطا در اجرا" : session ? statusText[status] : "در حال آماده‌سازی…"}</div>
         </div>
+        <button type="button" className={`icon-btn${problems ? " badge" : ""}`} data-count={problems || undefined} title="رویدادها و لاگ" onClick={() => setShowLog(!showLog)}>
+          <Activity size={16} />
+        </button>
+        <button type="button" className="icon-btn" title="اجرای دوباره با آخرین تغییرات" onClick={restart}>
+          <RotateCcw size={16} />
+        </button>
+        <button type="button" className="icon-btn" title="بستن" onClick={onClose}>
+          <X size={16} />
+        </button>
       </div>
 
-      {error ? (
-        <div className="tc-error">
-          <p>{error}</p>
-          <button type="button" className="btn" onClick={start}>
-            تلاش دوباره
-          </button>
+      {session && (
+        <div className="tg-chats">
+          {session.chats.map((c) => {
+            const { label, Icon } = chatMeta(c);
+            return (
+              <button type="button" key={c.id} className={active === c.id ? "on" : ""} onClick={() => setActive(c.id)}>
+                <Icon size={14} /> {label}
+              </button>
+            );
+          })}
         </div>
-      ) : !session ? (
-        <div className="tc-empty">در حال آماده‌سازی ربات…</div>
-      ) : (
-        <>
-          <div className="tc-tabs">
-            {session.chats.map((c) => (
-              <button type="button" key={c.id} className={`tc-tab${active === c.id ? " active" : ""}`} onClick={() => setActive(c.id)}>
-                {chatTitle(c)}
-              </button>
-            ))}
+      )}
+
+      {isGroup && session && (
+        <div className="tg-bar">
+          <span>ارسال به‌عنوان</span>
+          <div className="seg small">
+            <button type="button" className={sender === ME ? "on" : ""} onClick={() => setSender(ME)}>
+              شما (مالک)
+            </button>
+            <button type="button" className={sender === OTHER ? "on" : ""} onClick={() => setSender(OTHER)}>
+              کاربر ۲ (عضو)
+            </button>
           </div>
-
-          {isGroup && (
-            <div className="tc-bar">
-              <label>
-                ارسال به‌عنوان:
-                <select className="input small" value={sender} onChange={(e) => setSender(Number(e.target.value))}>
-                  {session.users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!otherIsMember && (
-                <button type="button" className="btn-ghost small" onClick={() => act({ type: "join", user_id: OTHER })}>
-                  ➕ ورود کاربر تست
-                </button>
-              )}
-            </div>
+          {!otherIsMember && (
+            <button type="button" className="btn btn-soft small" onClick={() => act({ type: "join", user_id: OTHER })}>
+              <UserPlus size={14} /> ورود کاربر ۲
+            </button>
           )}
+        </div>
+      )}
 
-          <div className="tc-list" ref={listRef}>
-            {snap?.messages.length ? null : <div className="tc-empty">پیامی نیست. {active === ME ? "مثلاً /start بفرستید." : ""}</div>}
+      <div className="tg-body">
+        {error ? (
+          <div className="tg-empty error">
+            <p>{error}</p>
+            <button type="button" className="btn btn-primary" onClick={start}>
+              تلاش دوباره
+            </button>
+          </div>
+        ) : !session ? (
+          <div className="tg-empty">
+            <span className="spinner" /> ربات در حال اجراست…
+          </div>
+        ) : (
+          <div className="tg-list" ref={listRef}>
+            {!snap?.messages.length && (
+              <div className="tg-hint">
+                {active === ME ? (
+                  <>
+                    پیامی نیست. با <button onClick={() => send("/start")}>/start</button> شروع کنید.
+                  </>
+                ) : isChannel ? (
+                  "متنی بنویسید تا به‌عنوان پست کانال منتشر شود."
+                ) : (
+                  "پیامی نیست."
+                )}
+              </div>
+            )}
             {snap?.messages.map((m) => (
-              <Bubble key={m.id} m={m} group={isGroup} onPress={(b) => act({ type: "press", message_id: m.id, button: b })} onReply={() => setReplyTo(m)} />
+              <Bubble key={m.id} m={m} group={!!isGroup} replied={m.reply_to ? byId[m.reply_to] : undefined} onPress={(b) => act({ type: "press", message_id: m.id, button: b })} onReply={() => (setReplyTo(m), inputRef.current?.focus())} />
             ))}
           </div>
-
-          {toast && <div className={`tc-toast${toast.alert ? " alert" : ""}`} onClick={() => setToast(null)}>{toast.text}</div>}
-
-          {snap?.keyboard && (
-            <div className="tc-kb">
-              {snap.keyboard.map((row, i) => (
-                <div key={i} className="tc-kb-row">
-                  {row.map((b) => (
-                    <button type="button" key={b.text} className="tc-kb-btn" onClick={() => (b.request_contact ? act({ type: "contact" }) : send(b.text))}>
-                      {b.text}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {replyTo && (
-            <div className="tc-replying">
-              ↩️ در پاسخ به: {(replyTo.text || replyTo.caption || replyTo.media || "").slice(0, 40)}
-              <button type="button" className="btn-icon" onClick={() => setReplyTo(null)}>
-                ×
+        )}
+        {toast && (
+          <div className={`tg-toast${toast.alert ? " alert" : ""}`} onClick={() => setToast(null)}>
+            {toast.text}
+            {toast.alert && <button type="button">باشه</button>}
+          </div>
+        )}
+        {showLog && (
+          <div className="tg-log">
+            <div className="tg-log-head">
+              رویدادها
+              <button type="button" className="icon-btn" onClick={() => setShowLog(false)}>
+                <X size={14} />
               </button>
             </div>
-          )}
-          <form
-            className="tc-input"
-            onSubmit={(e) => {
-              e.preventDefault();
-              send();
-            }}
-          >
-            <input className="input" dir="auto" value={text} placeholder={snap?.chat.type === "channel" ? "متن پست کانال…" : "پیام…"} onChange={(e) => setText(e.target.value)} />
-            <button type="submit" className="btn" disabled={!text.trim() || busy}>
-              ارسال
-            </button>
-          </form>
-          <div className="tc-more">
-            <button type="button" className="btn-ghost small" onClick={() => act({ type: "contact" })} disabled={snap?.chat.type !== "private"}>
-              📱 ارسال شماره
-            </button>
-            <button
-              type="button"
-              className="btn-ghost small"
-              onClick={() => {
-                const q = prompt("متن inline query:", "go");
-                if (q !== null) act({ type: "inline", text: q });
-              }}
-            >
-              ⌨️ inline
-            </button>
-            <button type="button" className={`btn-ghost small${problems.length ? " warn" : ""}`} onClick={() => setShowLog(!showLog)}>
-              رویدادها {problems.length ? `(${problems.length} خطا)` : ""}
-            </button>
-          </div>
-          {showLog && (
-            <div className="tc-log" dir="auto">
-              {events.slice(-80).map((e) => (
-                <div key={e.seq} className={`tc-log-line k-${e.kind}`}>
-                  {e.chat && <span className="muted">[{e.chat}] </span>}
+            <div className="tg-log-list" dir="auto">
+              {events.length === 0 && <div className="muted">هنوز رویدادی نیست.</div>}
+              {events.slice(-120).map((e) => (
+                <div key={e.seq} className={`log-line k-${e.kind}`}>
+                  {e.chat && <span className="muted">{e.chat} · </span>}
                   {e.who && <b>{e.who}: </b>}
                   {e.text}
                 </div>
               ))}
             </div>
-          )}
-        </>
+          </div>
+        )}
+      </div>
+
+      {snap?.keyboard && (
+        <div className="tg-kb">
+          {snap.keyboard.map((row, i) => (
+            <div key={i} className="tg-kb-row">
+              {row.map((b) => (
+                <button type="button" key={b.text} onClick={() => (b.request_contact ? act({ type: "contact" }) : send(b.text))}>
+                  {b.request_contact && <Phone size={13} />} {b.text}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {replyTo && (
+        <div className="tg-replying">
+          <Reply size={15} />
+          <div>
+            <b>{replyTo.from}</b>
+            <span>{(replyTo.text || replyTo.caption || replyTo.info || "").slice(0, 60)}</span>
+          </div>
+          <button type="button" className="icon-btn" onClick={() => setReplyTo(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {session && (
+        <form
+          className="tg-input"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          <div className="tg-more-wrap">
+            <button type="button" className="icon-btn" title="بیشتر" onClick={() => setShowMore(!showMore)}>
+              <Plus size={18} />
+            </button>
+            {showMore && (
+              <div className="pop tg-more" onMouseLeave={() => setShowMore(false)}>
+                <button type="button" className="pop-item" disabled={snap?.chat.type !== "private"} onClick={() => (setShowMore(false), act({ type: "contact" }))}>
+                  <Phone size={14} /> ارسال شماره تماس
+                </button>
+                <button
+                  type="button"
+                  className="pop-item"
+                  onClick={() => {
+                    setShowMore(false);
+                    const q = prompt("متن inline query:", "go");
+                    if (q !== null) act({ type: "inline", text: q });
+                  }}
+                >
+                  <AtSign size={14} /> تست inline query
+                </button>
+              </div>
+            )}
+          </div>
+          <input ref={inputRef} className="tg-text" dir="auto" value={text} placeholder={isChannel ? "متن پست کانال…" : "پیام…"} onChange={(e) => setText(e.target.value)} />
+          <button type="submit" className="tg-send" disabled={!text.trim() || busy} aria-label="ارسال">
+            <Send size={17} />
+          </button>
+        </form>
       )}
     </div>
   );
 }
 
-function Bubble({ m, group, onPress, onReply }: { m: MsgView; group: boolean; onPress: (b: string) => void; onReply: () => void }) {
+function Bubble({ m, group, replied, onPress, onReply }: { m: MsgView; group: boolean; replied?: MsgView; onPress: (b: string) => void; onReply: () => void }) {
   const body = m.text || m.caption || "";
   return (
-    <div className={`bubble ${m.by_bot ? "bot" : "user"}${m.deleted ? " deleted" : ""}`}>
-      {(group || m.by_bot) && <div className="b-from">{m.from}</div>}
-      {m.media && (
-        <div className="b-media">
-          {mediaIcon[m.media] ?? "📎"} {m.media}
-        </div>
-      )}
-      {m.info && <div className="b-info">{m.info}</div>}
-      {body && (
-        <div className="b-text" dir="auto">
-          {body}
-        </div>
-      )}
-      <div className="b-meta">
-        {m.pinned && "📌 "}
-        {m.reactions?.join("")} {m.deleted ? "حذف شد" : ""} #{m.id}
-        {!m.deleted && (
-          <button type="button" className="b-reply" onClick={onReply} title="ریپلای">
-            ↩
-          </button>
-        )}
-      </div>
-      {!m.deleted &&
-        m.buttons?.map((row, i) => (
-          <div key={i} className="b-btns">
-            {row.map((b) =>
-              b.url ? (
-                <a key={b.text} className="b-btn" href={b.url} target="_blank" rel="noreferrer">
-                  {b.text} ↗
-                </a>
-              ) : (
-                <button type="button" key={b.text} className="b-btn" onClick={() => onPress(b.text)}>
-                  {b.text}
-                </button>
-              ),
-            )}
+    <div className={`msg ${m.by_bot ? "in" : "out"}${m.deleted ? " deleted" : ""}`}>
+      <div className="bubble">
+        {(group || m.by_bot) && <div className="b-from">{m.from}</div>}
+        {replied && (
+          <div className="b-quote">
+            <b>{replied.from}</b>
+            <span>{(replied.text || replied.caption || replied.info || "").slice(0, 50)}</span>
           </div>
-        ))}
+        )}
+        {m.media && <div className="b-media">{mediaLabel[m.media] ?? "📎 " + m.media}</div>}
+        {m.info && <div className="b-info">{m.info}</div>}
+        {body && (
+          <div className="b-text" dir="auto">
+            {body}
+          </div>
+        )}
+        <div className="b-meta">
+          {m.reactions?.length ? <span className="b-react">{m.reactions.join("")}</span> : null}
+          {m.pinned && <span title="سنجاق شده">📌</span>}
+          {m.deleted ? <span>حذف شد</span> : null}
+          <span>#{m.id}</span>
+          {!m.deleted && (
+            <button type="button" className="b-reply" onClick={onReply} title="ریپلای">
+              <CornerDownLeft size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+      {!m.deleted && m.buttons?.length ? (
+        <div className="b-kb">
+          {m.buttons.map((row, i) => (
+            <div key={i} className="b-kb-row">
+              {row.map((b) =>
+                b.url ? (
+                  <a key={b.text} href={b.url} target="_blank" rel="noreferrer">
+                    {b.text} <Link2 size={11} />
+                  </a>
+                ) : (
+                  <button type="button" key={b.text} onClick={() => onPress(b.text)}>
+                    {b.text}
+                  </button>
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
